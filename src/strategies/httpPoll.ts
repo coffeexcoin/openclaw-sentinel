@@ -1,11 +1,12 @@
 import { StrategyHandler } from './base.js';
 
-export const httpPollStrategy: StrategyHandler = async (watcher, onPayload) => {
+export const httpPollStrategy: StrategyHandler = async (watcher, onPayload, onError) => {
   const interval = watcher.intervalMs ?? 30000;
   let active = true;
 
-  const loop = async () => {
-    while (active) {
+  const tick = async () => {
+    if (!active) return;
+    try {
       const response = await fetch(watcher.endpoint, {
         method: watcher.method ?? 'GET',
         headers: watcher.headers,
@@ -17,10 +18,13 @@ export const httpPollStrategy: StrategyHandler = async (watcher, onPayload) => {
       if (!contentType.toLowerCase().includes('json')) throw new Error(`http-poll expected JSON, got: ${contentType || 'unknown'}`);
       const payload = await response.json();
       await onPayload(payload);
-      await new Promise((r) => setTimeout(r, interval));
+    } catch (err) {
+      await onError(err);
+      return;
     }
+    if (active) setTimeout(() => { void tick(); }, interval);
   };
 
-  await loop();
+  void tick();
   return async () => { active = false; };
 };

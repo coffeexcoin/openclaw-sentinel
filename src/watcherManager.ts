@@ -19,6 +19,7 @@ export class WatcherManager {
   private watchers = new Map<string, WatcherDefinition>();
   private runtime: Record<string, WatcherRuntimeState> = {};
   private stops = new Map<string, () => void | Promise<void>>();
+  private retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private statePath: string;
 
   constructor(private config: SentinelConfig, private dispatcher: GatewayWebhookDispatcher) {
@@ -57,44 +58,66 @@ export class WatcherManager {
     if (this.stops.has(id)) return;
     const watcher = this.require(id);
     const handler = ({ 'http-poll': httpPollStrategy, websocket: websocketStrategy, sse: sseStrategy, 'http-long-poll': httpLongPollStrategy } as const)[watcher.strategy];
-    const stop = await handler(watcher, async (payload) => {
-      const rt = this.runtime[id] ?? { id, consecutiveFailures: 0 };
-      const previousPayload = rt.lastPayload;
-      const matched = evaluateConditions(watcher.conditions, watcher.match, payload, previousPayload);
-      rt.lastPayloadHash = hashPayload(payload);
-      rt.lastPayload = payload;
-      rt.lastResponseAt = new Date().toISOString();
-      rt.lastEvaluated = rt.lastResponseAt;
-      rt.consecutiveFailures = 0;
-      this.runtime[id] = rt;
-      if (matched) {
-        const body = renderTemplate(watcher.fire.payloadTemplate, {
-          watcher,
-          event: { name: watcher.fire.eventName },
-          payload,
-          timestamp: new Date().toISOString()
-        });
-        await this.dispatcher.dispatch(watcher.fire.webhookPath, body);
-      }
-      await this.persist();
-    }).catch(async (err) => {
+
+    const handleFailure = async (err: unknown) => {
       const rt = this.runtime[id] ?? { id, consecutiveFailures: 0 };
       rt.consecutiveFailures += 1;
-      rt.lastError = String(err?.message ?? err);
+      rt.lastError = String((err as any)?.message ?? err);
       this.runtime[id] = rt;
+
+      if (this.retryTimers.has(id)) {
+        await this.persist();
+        return;
+      }
+
       const delay = backoff(watcher.retry.baseMs, watcher.retry.maxMs, rt.consecutiveFailures);
       if (rt.consecutiveFailures <= watcher.retry.maxRetries && watcher.enabled) {
-        this.stops.delete(id);
-        setTimeout(() => this.startWatcher(id).catch(() => undefined), delay);
+        await this.stopWatcher(id);
+        const timer = setTimeout(() => {
+          this.retryTimers.delete(id);
+          this.startWatcher(id).catch(() => undefined);
+        }, delay);
+        this.retryTimers.set(id, timer);
       }
       await this.persist();
-      return async () => undefined;
-    });
+    };
+
+    const stop = await handler(
+      watcher,
+      async (payload) => {
+        const rt = this.runtime[id] ?? { id, consecutiveFailures: 0 };
+        const previousPayload = rt.lastPayload;
+        const matched = evaluateConditions(watcher.conditions, watcher.match, payload, previousPayload);
+        rt.lastPayloadHash = hashPayload(payload);
+        rt.lastPayload = payload;
+        rt.lastResponseAt = new Date().toISOString();
+        rt.lastEvaluated = rt.lastResponseAt;
+        rt.consecutiveFailures = 0;
+        rt.lastError = undefined;
+        this.runtime[id] = rt;
+        if (matched) {
+          const body = renderTemplate(watcher.fire.payloadTemplate, {
+            watcher,
+            event: { name: watcher.fire.eventName },
+            payload,
+            timestamp: new Date().toISOString()
+          });
+          await this.dispatcher.dispatch(watcher.fire.webhookPath, body);
+        }
+        await this.persist();
+      },
+      handleFailure
+    );
 
     this.stops.set(id, stop);
   }
 
   private async stopWatcher(id: string): Promise<void> {
+    const timer = this.retryTimers.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      this.retryTimers.delete(id);
+    }
     const stop = this.stops.get(id);
     if (stop) await Promise.resolve(stop());
     this.stops.delete(id);
