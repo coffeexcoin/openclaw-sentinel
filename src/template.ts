@@ -19,7 +19,9 @@ export function renderTemplate(template: Record<string, string | number | boolea
       throw new Error(`Template placeholder not allowed: ${value}`);
     }
     const path = value.slice(2, -1);
-    out[key] = getPath(context, path);
+    const resolved = getPath(context, path);
+    if (resolved === undefined) throw new Error(`Template placeholder unresolved: `);
+    out[key] = resolved;
   }
   return out;
 }
