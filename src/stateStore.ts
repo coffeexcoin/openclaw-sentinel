@@ -22,8 +22,9 @@ export async function loadState(filePath: string): Promise<SentinelStateFile> {
 }
 
 export async function saveState(filePath: string, watchers: WatcherDefinition[], runtime: Record<string, WatcherRuntimeState>): Promise<void> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify({ watchers, runtime, updatedAt: new Date().toISOString() }, null, 2));
+  await fs.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  await fs.writeFile(filePath, JSON.stringify({ watchers, runtime, updatedAt: new Date().toISOString() }, null, 2), { mode: 0o600 });
+  await fs.chmod(filePath, 0o600);
 }
 
 export function mergeState(existing: SentinelStateFile, incoming: SentinelStateFile): SentinelStateFile {
