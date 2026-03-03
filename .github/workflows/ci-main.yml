@@ -12,10 +12,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: ci-main-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   validate:
     runs-on: ubuntu-latest
