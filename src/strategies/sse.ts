@@ -2,9 +2,16 @@ import { StrategyHandler } from './base.js';
 
 export const sseStrategy: StrategyHandler = async (watcher, onPayload) => {
   let active = true;
+
   const loop = async () => {
     while (active) {
-      const response = await fetch(watcher.endpoint, { headers: { Accept: 'text/event-stream', ...(watcher.headers ?? {}) } });
+      const response = await fetch(watcher.endpoint, {
+        headers: { Accept: 'text/event-stream', ...(watcher.headers ?? {}) },
+        signal: AbortSignal.timeout(watcher.timeoutMs ?? 60000)
+      });
+      if (!response.ok) throw new Error(`sse non-2xx: ${response.status}`);
+      const contentType = response.headers.get('content-type') ?? '';
+      if (!contentType.toLowerCase().includes('text/event-stream')) throw new Error(`sse expected text/event-stream, got: ${contentType || 'unknown'}`);
       const text = await response.text();
       for (const line of text.split('\n')) {
         if (line.startsWith('data:')) {
@@ -16,6 +23,7 @@ export const sseStrategy: StrategyHandler = async (watcher, onPayload) => {
       await new Promise((r) => setTimeout(r, watcher.intervalMs ?? 1000));
     }
   };
-  loop().catch(() => undefined);
+
+  await loop();
   return async () => { active = false; };
 };
