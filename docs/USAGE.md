@@ -26,11 +26,9 @@ In config, you **must** set `allowedHosts` — no hosts are allowed by default. 
 `/hooks/sentinel` payload notes:
 
 - Send a JSON object.
-- Sentinel now emits a deterministic wake event with:
-  - an instruction prefix (`SENTINEL_TRIGGER: ...`)
-  - `SENTINEL_ENVELOPE_JSON:` followed by a machine-readable JSON envelope
-- Envelope keys are stable: `watcherId`, `eventName`, `skillId` (if present), `matchedAt`, `payload` (bounded), `dedupeKey`, `correlationId`, `deliveryTargets` (if present), and `source` metadata.
-- Legacy/minimal payloads are still accepted (e.g., `watcher.id`, `event.name`, `timestamp`).
+- Preferred shape is a callback envelope (`type: "sentinel.callback"`).
+- Sentinel prepends instructions for the agent to interpret intent/context, apply policy, act, and notify configured targets.
+- Legacy `text`/`message` payloads remain supported for backward compatibility.
 
 Example structured wake event text:
 
@@ -38,13 +36,14 @@ Example structured wake event text:
 SENTINEL_TRIGGER: This system event came from /hooks/sentinel. Evaluate action policy, decide whether to notify configured deliveryTargets, and execute safe follow-up actions.
 SENTINEL_ENVELOPE_JSON:
 {
-  "watcherId": "status-watch",
-  "eventName": "service_degraded",
-  "skillId": "skills.ops",
-  "matchedAt": "2026-03-04T14:12:00.000Z",
+  "type": "sentinel.callback",
+  "version": "1",
+  "intent": "service_health_triage",
+  "actionable": true,
+  "watcher": { "id": "status-watch", "skillId": "skills.ops", "eventName": "service_degraded" },
+  "trigger": { "matchedAt": "2026-03-04T14:12:00.000Z", "dedupeKey": "4f3f2bd2ce1a57cd", "priority": "high" },
+  "context": { "component": "api", "status": "degraded", "runbook": "ops-degraded-service" },
   "payload": { "component": "api", "status": "degraded" },
-  "dedupeKey": "4f3f2bd2ce1a57cd",
-  "correlationId": "4f3f2bd2ce1a57cd",
   "deliveryTargets": [{ "channel": "telegram", "to": "5613673222" }],
   "source": { "route": "/hooks/sentinel", "plugin": "openclaw-sentinel" }
 }
@@ -71,6 +70,13 @@ Create a watcher via `sentinel_control`:
     "fire": {
       "webhookPath": "/hooks/agent",
       "eventName": "service_degraded",
+      "intent": "service_health_triage",
+      "contextTemplate": {
+        "component": "${payload.component}",
+        "status": "${payload.status}",
+        "runbook": "ops-degraded-service"
+      },
+      "priority": "high",
       "payloadTemplate": {
         "event": "${event.name}",
         "component": "${payload.component}",
@@ -221,3 +227,29 @@ Typical skill flow:
 5. Agent wakes, acts, and optionally disables/removes watcher.
 
 This pattern keeps the model active only at decision points.
+
+---
+
+## Callback envelope contract
+
+On watcher match, Sentinel emits:
+
+```json
+{
+  "type": "sentinel.callback",
+  "version": "1",
+  "intent": "service_health_triage",
+  "actionable": true,
+  "watcher": { "id": "status-watch", "skillId": "skills.ops", "eventName": "service_degraded" },
+  "trigger": { "matchedAt": "<iso>", "dedupeKey": "<sha256>", "priority": "high" },
+  "context": { "component": "api", "status": "degraded", "runbook": "ops-degraded-service" },
+  "payload": { "...": "bounded/truncated when large" },
+  "deliveryTargets": [],
+  "source": { "plugin": "openclaw-sentinel", "route": "/hooks/agent" }
+}
+```
+
+If `intent`/`contextTemplate` are omitted, Sentinel falls back to:
+
+- `intent`: derived from `eventName`
+- `context`: rendered `payloadTemplate` (or payload summary)

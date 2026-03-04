@@ -1,5 +1,16 @@
 import { Type } from "@sinclair/typebox";
 
+const TemplateValueSchema: any = Type.Recursive((Self) =>
+  Type.Union([
+    Type.String(),
+    Type.Number(),
+    Type.Boolean(),
+    Type.Null(),
+    Type.Array(Self),
+    Type.Record(Type.String(), Self),
+  ]),
+);
+
 const ConditionSchema = Type.Object({
   path: Type.String({ description: "JSONPath expression to evaluate against the response" }),
   op: Type.Union(
@@ -30,13 +41,30 @@ const FireConfigSchema = Type.Object({
     description: "Path appended to localDispatchBase for webhook delivery",
   }),
   eventName: Type.String({ description: "Event name included in the dispatched payload" }),
-  payloadTemplate: Type.Record(
-    Type.String(),
-    Type.Union([Type.String(), Type.Number(), Type.Boolean(), Type.Null()]),
-    {
+  payloadTemplate: Type.Record(Type.String(), TemplateValueSchema, {
+    description:
+      "Key-value template for the webhook payload. Supports ${...} interpolation from matched response data.",
+  }),
+  intent: Type.Optional(
+    Type.String({ description: "Generic callback intent for downstream agent routing" }),
+  ),
+  contextTemplate: Type.Optional(
+    Type.Record(Type.String(), TemplateValueSchema, {
       description:
-        "Key-value template for the webhook payload. Supports ${...} interpolation from matched response data.",
-    },
+        "Structured callback context template. Supports ${...} interpolation from matched response data.",
+    }),
+  ),
+  priority: Type.Optional(
+    Type.Union(
+      [Type.Literal("low"), Type.Literal("normal"), Type.Literal("high"), Type.Literal("critical")],
+      { description: "Callback urgency hint" },
+    ),
+  ),
+  deadlineTemplate: Type.Optional(
+    Type.String({ description: "Optional templated deadline string for callback consumers" }),
+  ),
+  dedupeKeyTemplate: Type.Optional(
+    Type.String({ description: "Optional template to derive deterministic trigger dedupe key" }),
   ),
 });
 

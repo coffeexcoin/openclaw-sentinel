@@ -30,6 +30,22 @@
         "changed"
       ]
     },
+    "templateValue": {
+      "anyOf": [
+        { "type": "string" },
+        { "type": "number" },
+        { "type": "boolean" },
+        { "type": "null" },
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/templateValue" }
+        },
+        {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/templateValue" }
+        }
+      ]
+    },
     "condition": {
       "type": "object",
       "additionalProperties": false,
@@ -53,15 +69,19 @@
         "eventName": { "type": "string", "minLength": 1 },
         "payloadTemplate": {
           "type": "object",
-          "additionalProperties": {
-            "anyOf": [
-              { "type": "string" },
-              { "type": "number" },
-              { "type": "boolean" },
-              { "type": "null" }
-            ]
-          }
-        }
+          "additionalProperties": { "$ref": "#/$defs/templateValue" }
+        },
+        "intent": { "type": "string", "minLength": 1 },
+        "contextTemplate": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/templateValue" }
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["low", "normal", "high", "critical"]
+        },
+        "deadlineTemplate": { "type": "string", "minLength": 1 },
+        "dedupeKeyTemplate": { "type": "string", "minLength": 1 }
       }
     },
     "retry": {

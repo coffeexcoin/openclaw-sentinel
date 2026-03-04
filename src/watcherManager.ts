@@ -3,6 +3,7 @@ import { assertHostAllowed, assertWatcherLimits } from "./limits.js";
 import { defaultStatePath, loadState, saveState } from "./stateStore.js";
 import { renderTemplate } from "./template.js";
 import { validateWatcherDefinition } from "./validator.js";
+import { createCallbackEnvelope } from "./callbackEnvelope.js";
 import { httpPollStrategy } from "./strategies/httpPoll.js";
 import { httpLongPollStrategy } from "./strategies/httpLongPoll.js";
 import { sseStrategy } from "./strategies/sse.js";
@@ -213,16 +214,22 @@ export class WatcherManager {
         rt.lastError = undefined;
         this.runtime[id] = rt;
         if (matched) {
-          const body = renderTemplate(watcher.fire.payloadTemplate, {
+          const matchedAt = new Date().toISOString();
+          const payloadBody = renderTemplate(watcher.fire.payloadTemplate, {
             watcher,
             event: { name: watcher.fire.eventName },
             payload,
-            timestamp: new Date().toISOString(),
+            timestamp: matchedAt,
           });
-          await this.dispatcher.dispatch(
-            watcher.fire.webhookPath ?? DEFAULT_SENTINEL_WEBHOOK_PATH,
-            body,
-          );
+          const webhookPath = watcher.fire.webhookPath ?? DEFAULT_SENTINEL_WEBHOOK_PATH;
+          const body = createCallbackEnvelope({
+            watcher,
+            payload,
+            payloadBody,
+            matchedAt,
+            webhookPath,
+          });
+          await this.dispatcher.dispatch(webhookPath, body);
 
           if (watcher.deliveryTargets?.length && this.notifier) {
             const attemptedAt = new Date().toISOString();

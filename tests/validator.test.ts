@@ -36,6 +36,24 @@ describe("validator", () => {
     const watcher = validateWatcherDefinition(base);
     expect(watcher.fire.webhookPath).toBe("/internal/sentinel");
   });
+  it("accepts generic callback fields", () => {
+    const watcher = validateWatcherDefinition({
+      ...base,
+      fire: {
+        ...base.fire,
+        intent: "incident_triage",
+        contextTemplate: {
+          summary: "${payload.a}",
+          details: { previous: "${watcher.id}", next: ["${event.name}"] },
+        },
+        priority: "high",
+        deadlineTemplate: "${timestamp}",
+      },
+    });
+    expect(watcher.fire.intent).toBe("incident_triage");
+    expect(watcher.fire.priority).toBe("high");
+  });
+
   it("rejects unknown fields", () => {
     expect(() => validateWatcherDefinition({ ...base, rogue: true })).toThrow();
   });

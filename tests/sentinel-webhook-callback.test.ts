@@ -125,6 +125,39 @@ describe("sentinel webhook callback route", () => {
     expect(res.statusCode).toBe(200);
   });
 
+  it("formats sentinel.callback payloads with instruction prefix and envelope block", async () => {
+    const registerHttpRoute = vi.fn();
+    const enqueueSystemEvent = vi.fn(() => true);
+
+    const plugin = createSentinelPlugin();
+    plugin.register({
+      registerTool: vi.fn(),
+      registerHttpRoute,
+      runtime: { system: { enqueueSystemEvent, requestHeartbeatNow: vi.fn() } },
+      logger: { info: vi.fn(), error: vi.fn() },
+    } as any);
+
+    const route = registerHttpRoute.mock.calls[0][0];
+    const req = makeReq(
+      "POST",
+      JSON.stringify({
+        type: "sentinel.callback",
+        version: "1",
+        intent: "incident_triage",
+        watcher: { id: "w1", skillId: "skills.alerts", eventName: "service_degraded" },
+      }),
+    );
+    const res = makeRes();
+
+    await route.handler(req as any, res as any);
+
+    const eventText = enqueueSystemEvent.mock.calls[0][0] as string;
+    expect(eventText).toContain("SENTINEL_TRIGGER:");
+    expect(eventText).toContain("SENTINEL_ENVELOPE_JSON:");
+    expect(eventText).toContain('"type": "sentinel.callback"');
+    expect(res.statusCode).toBe(200);
+  });
+
   it("supports backward-compatible minimal payload shapes", async () => {
     const registerHttpRoute = vi.fn();
     const enqueueSystemEvent = vi.fn(() => true);
