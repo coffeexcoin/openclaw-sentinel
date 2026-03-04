@@ -1,7 +1,12 @@
 import WebSocket from "ws";
 import { StrategyHandler } from "./base.js";
 
-export const websocketStrategy: StrategyHandler = async (watcher, onPayload, onError, callbacks) => {
+export const websocketStrategy: StrategyHandler = async (
+  watcher,
+  onPayload,
+  onError,
+  callbacks,
+) => {
   let active = true;
   let ws: WebSocket | null = null;
 
