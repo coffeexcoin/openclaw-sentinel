@@ -329,7 +329,7 @@ Typical skill flow:
 1. Skill creates watcher when user asks to monitor an external event.
 2. Sentinel watches with zero token burn while idle.
 3. On condition match, Sentinel dispatches webhook payload.
-4. If routed to `/hooks/sentinel`, OpenClaw enqueues a system event and triggers heartbeat wake.
+4. If routed to `/hooks/sentinel`, OpenClaw enqueues a cron-tagged sentinel system event and triggers an immediate `cron:sentinel-callback` wake (not heartbeat-poll prompting).
 5. Agent wakes, acts, and optionally disables/removes watcher.
 
 This pattern keeps the model active only at decision points.

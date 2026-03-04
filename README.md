@@ -146,7 +146,7 @@ Use `sentinel_control`:
 1. Sentinel evaluates conditions.
 2. On match, it dispatches a generic callback envelope (`type: "sentinel.callback"`) to `localDispatchBase + webhookPath`.
 3. The envelope includes stable keys (`intent`, `context`, `watcher`, `trigger`, bounded `payload`, `deliveryTargets`, `deliveryContext`, `source`) so downstream agent behavior is workflow-agnostic.
-4. For `/hooks/sentinel`, Sentinel enqueues an instruction-prefixed system event plus structured JSON envelope and requests heartbeat wake.
+4. For `/hooks/sentinel`, Sentinel enqueues an instruction-prefixed system event plus structured JSON envelope with a cron-tagged callback context, then requests an immediate `cron:sentinel-callback` wake (avoids heartbeat-poll prompting).
 5. The hook route creates a **response-delivery contract** keyed by callback dedupe key, preserving original chat/session context (`deliveryContext`) and intended relay targets.
 6. OpenClaw processes each callback in an isolated hook session: per-watcher by default, or grouped when `hookSessionGroup` / `fire.sessionGroup` is set. Shared global hook-session mode is intentionally not supported.
 7. When hook-session LLM output arrives, Sentinel relays assistant-authored text to the original chat context. If no assistant output arrives before `hookResponseTimeoutMs`, optional fallback relay behavior is applied (`hookResponseFallbackMode`).

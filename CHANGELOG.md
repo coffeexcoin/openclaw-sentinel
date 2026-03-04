@@ -1,5 +1,12 @@
 # @coffeexdev/openclaw-sentinel
 
+## Unreleased
+
+### Patch Notes
+
+- Sentinel `/hooks/sentinel` callbacks now enqueue with a cron-tagged callback context and wake via `cron:sentinel-callback`, so callback sessions process `SENTINEL_TRIGGER` envelope context instead of heartbeat-poll prompting.
+- Added relay guardrails so literal `HEARTBEAT_OK` is never forwarded as callback output; concise fallback relay remains sentinel-specific.
+
 ## 0.5.0
 
 ### Minor Changes

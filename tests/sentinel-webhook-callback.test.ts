@@ -97,7 +97,10 @@ describe("sentinel webhook callback route", () => {
 
     expect(mocks.enqueueSystemEvent).toHaveBeenCalledTimes(1);
     const [text, options] = mocks.enqueueSystemEvent.mock.calls[0];
-    expect(options).toEqual({ sessionKey: "agent:main:hooks:sentinel:watcher:btc-price" });
+    expect(options).toEqual({
+      sessionKey: "agent:main:hooks:sentinel:watcher:btc-price",
+      contextKey: "cron:sentinel-callback",
+    });
     expect(text).toContain("SENTINEL_TRIGGER:");
     expect(text).toContain("SENTINEL_ENVELOPE_JSON:");
 
@@ -115,9 +118,12 @@ describe("sentinel webhook callback route", () => {
     });
 
     expect(mocks.requestHeartbeatNow).toHaveBeenCalledWith({
-      reason: "hook:sentinel",
+      reason: "cron:sentinel-callback",
       sessionKey: "agent:main:hooks:sentinel:watcher:btc-price",
     });
+    expect(mocks.requestHeartbeatNow).not.toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "hook:sentinel" }),
+    );
     expect(res.statusCode).toBe(200);
   });
 
@@ -141,7 +147,10 @@ describe("sentinel webhook callback route", () => {
     await route.handler(req as any, res as any);
 
     const [, options] = mocks.enqueueSystemEvent.mock.calls[0];
-    expect(options).toEqual({ sessionKey: "agent:main:hooks:sentinel:group:portfolio-risk" });
+    expect(options).toEqual({
+      sessionKey: "agent:main:hooks:sentinel:group:portfolio-risk",
+      contextKey: "cron:sentinel-callback",
+    });
     expect(res.statusCode).toBe(200);
   });
 
@@ -210,6 +219,47 @@ describe("sentinel webhook callback route", () => {
       pending: true,
       fallbackMode: "none",
     });
+  });
+
+  it("never relays literal HEARTBEAT_OK for sentinel callbacks", async () => {
+    vi.useFakeTimers();
+    const mocks = createApiMocks();
+
+    const plugin = createSentinelPlugin({
+      hookResponseTimeoutMs: 1000,
+      hookResponseFallbackMode: "concise",
+    });
+    plugin.register(mocks.api);
+
+    const llmOutput = mocks.hooks.get("llm_output");
+    const route = mocks.registerHttpRoute.mock.calls[0][0];
+    await route.handler(
+      makeReq(
+        "POST",
+        JSON.stringify({
+          watcherId: "btc-price",
+          eventName: "price_alert",
+          dedupeKey: "hb-guard-1",
+          deliveryTargets: [{ channel: "telegram", to: "5613673222" }],
+        }),
+      ) as any,
+      makeRes() as any,
+    );
+
+    await llmOutput?.(
+      { assistantTexts: ["HEARTBEAT_OK"] },
+      { sessionKey: "agent:main:hooks:sentinel:watcher:btc-price" },
+    );
+
+    expect(mocks.sendMessageTelegram).toHaveBeenCalledTimes(0);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.runAllTimersAsync();
+
+    expect(mocks.sendMessageTelegram).toHaveBeenCalledTimes(1);
+    const [, fallbackMessage] = mocks.sendMessageTelegram.mock.calls[0];
+    expect(String(fallbackMessage)).toContain("Sentinel alert: price_alert");
+    expect(String(fallbackMessage)).not.toContain("HEARTBEAT_OK");
   });
 
   it("uses callback deliveryContext as fallback relay target when deliveryTargets are absent", async () => {

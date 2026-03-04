@@ -19,6 +19,9 @@ const DEFAULT_HOOK_RESPONSE_FALLBACK_MODE: HookResponseFallbackMode = "concise";
 const MAX_SENTINEL_WEBHOOK_BODY_BYTES = 64 * 1024;
 const MAX_SENTINEL_WEBHOOK_TEXT_CHARS = 8000;
 const MAX_SENTINEL_PAYLOAD_JSON_CHARS = 2500;
+const SENTINEL_CALLBACK_WAKE_REASON = "cron:sentinel-callback";
+const SENTINEL_CALLBACK_CONTEXT_KEY = "cron:sentinel-callback";
+const HEARTBEAT_ACK_TOKEN_PATTERN = /\bHEARTBEAT_OK\b/gi;
 const SENTINEL_EVENT_INSTRUCTION_PREFIX =
   "SENTINEL_TRIGGER: This system event came from /hooks/sentinel. Evaluate action policy, decide whether to notify configured deliveryTargets, and execute safe follow-up actions.";
 
@@ -412,12 +415,16 @@ function buildRelayMessage(envelope: SentinelEventEnvelope): string {
   if (contextSummary) lines.push(contextSummary);
 
   const text = lines.join("\n").trim();
-  return text.length > 0 ? text : "Sentinel callback received.";
+  return text.length > 0
+    ? text
+    : "Sentinel callback received, but no assistant detail was generated.";
 }
 
 function normalizeAssistantRelayText(assistantTexts: string[]): string | undefined {
   if (!Array.isArray(assistantTexts) || assistantTexts.length === 0) return undefined;
-  const parts = assistantTexts.map((value) => value.trim()).filter(Boolean);
+  const parts = assistantTexts
+    .map((value) => value.replace(HEARTBEAT_ACK_TOKEN_PATTERN, "").trim())
+    .filter(Boolean);
   if (parts.length === 0) return undefined;
   return trimText(parts.join("\n\n"), MAX_SENTINEL_WEBHOOK_TEXT_CHARS);
 }
@@ -834,9 +841,12 @@ export function createSentinelPlugin(overrides?: Partial<SentinelConfig>) {
               const envelope = buildSentinelEventEnvelope(payload);
               const sessionKey = buildIsolatedHookSessionKey(envelope, config);
               const text = buildSentinelSystemEvent(envelope);
-              const enqueued = api.runtime.system.enqueueSystemEvent(text, { sessionKey });
+              const enqueued = api.runtime.system.enqueueSystemEvent(text, {
+                sessionKey,
+                contextKey: SENTINEL_CALLBACK_CONTEXT_KEY,
+              });
               api.runtime.system.requestHeartbeatNow({
-                reason: "hook:sentinel",
+                reason: SENTINEL_CALLBACK_WAKE_REASON,
                 sessionKey,
               });
 
