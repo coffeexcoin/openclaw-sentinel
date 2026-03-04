@@ -22,9 +22,9 @@ const MAX_SENTINEL_WEBHOOK_TEXT_CHARS = 8000;
 const MAX_SENTINEL_PAYLOAD_JSON_CHARS = 2500;
 const SENTINEL_CALLBACK_WAKE_REASON = "cron:sentinel-callback";
 const SENTINEL_CALLBACK_CONTEXT_KEY = "cron:sentinel-callback";
-const HEARTBEAT_ACK_TOKEN_PATTERN = /\bHEARTBEAT_OK\b/gi;
+const RESERVED_CONTROL_TOKEN_PATTERN = /\b(?:NO[\s_-]*REPLY|HEARTBEAT[\s_-]*OK)\b/gi;
 const SENTINEL_EVENT_INSTRUCTION_PREFIX =
-  "SENTINEL_TRIGGER: This system event came from /hooks/sentinel. Evaluate action policy, decide whether to notify configured deliveryTargets, and execute safe follow-up actions.";
+  "SENTINEL_TRIGGER: This system event came from /hooks/sentinel. Use watcher + payload context to decide safe follow-up actions and produce a user-facing response.";
 
 const SUPPORTED_DELIVERY_CHANNELS = new Set([
   "telegram",
@@ -50,6 +50,23 @@ type SentinelEventEnvelope = {
   eventName: string | null;
   skillId?: string;
   matchedAt: string;
+  watcher: {
+    id: string | null;
+    skillId: string | null;
+    eventName: string | null;
+    intent: string | null;
+    strategy: string | null;
+    endpoint: string | null;
+    match: string | null;
+    conditions: unknown[];
+    fireOnce: boolean | null;
+  };
+  trigger: {
+    matchedAt: string;
+    dedupeKey: string;
+    priority: string | null;
+  };
+  context: unknown;
   payload: unknown;
   dedupeKey: string;
   correlationId: string;
@@ -246,34 +263,35 @@ function extractDeliveryContext(
   return Object.keys(context).length > 0 ? context : undefined;
 }
 
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
 function buildSentinelEventEnvelope(payload: Record<string, unknown>): SentinelEventEnvelope {
+  const watcherRecord = isRecord(payload.watcher) ? payload.watcher : undefined;
+  const triggerRecord = isRecord(payload.trigger) ? payload.trigger : undefined;
+
   const watcherId =
     asString(payload.watcherId) ??
-    getNestedString(payload, ["watcher", "id"]) ??
+    asString(watcherRecord?.id) ??
     getNestedString(payload, ["context", "watcherId"]);
 
   const eventName =
     asString(payload.eventName) ??
-    getNestedString(payload, ["watcher", "eventName"]) ??
+    asString(watcherRecord?.eventName) ??
     getNestedString(payload, ["event", "name"]);
 
   const skillId =
     asString(payload.skillId) ??
-    getNestedString(payload, ["watcher", "skillId"]) ??
+    asString(watcherRecord?.skillId) ??
     getNestedString(payload, ["context", "skillId"]) ??
     undefined;
 
   const matchedAt =
     asIsoString(payload.matchedAt) ??
     asIsoString(payload.timestamp) ??
-    asIsoString(getNestedString(payload, ["trigger", "matchedAt"])) ??
+    asIsoString(triggerRecord?.matchedAt) ??
     new Date().toISOString();
-
-  const rawPayload =
-    payload.payload ??
-    (isRecord(payload.event) ? (payload.event.payload ?? payload.event.data) : undefined) ??
-    payload;
-  const boundedPayload = clipPayloadForPrompt(rawPayload);
 
   const dedupeSeed = JSON.stringify({
     watcherId: watcherId ?? null,
@@ -285,8 +303,18 @@ function buildSentinelEventEnvelope(payload: Record<string, unknown>): SentinelE
     asString(payload.dedupeKey) ??
     asString(payload.correlationId) ??
     asString(payload.correlationID) ??
-    getNestedString(payload, ["trigger", "dedupeKey"]) ??
+    asString(triggerRecord?.dedupeKey) ??
     generatedDedupe;
+
+  const rawPayload =
+    payload.payload ??
+    (isRecord(payload.event) ? (payload.event.payload ?? payload.event.data) : undefined) ??
+    payload;
+  const rawContext =
+    payload.context ??
+    (isRecord(rawPayload) ? rawPayload.context : undefined) ??
+    (isRecord(payload.event) ? payload.event.context : undefined) ??
+    null;
 
   const deliveryTargets = Array.isArray(payload.deliveryTargets)
     ? payload.deliveryTargets.filter(isDeliveryTarget)
@@ -299,15 +327,45 @@ function buildSentinelEventEnvelope(payload: Record<string, unknown>): SentinelE
   const hookSessionGroup =
     asString(payload.hookSessionGroup) ??
     asString(payload.sessionGroup) ??
-    getNestedString(payload, ["watcher", "sessionGroup"]);
+    asString(watcherRecord?.sessionGroup);
 
   const deliveryContext = extractDeliveryContext(payload);
+
+  const watcherIntent = asString(payload.intent) ?? asString(watcherRecord?.intent) ?? null;
+  const watcherStrategy = asString(watcherRecord?.strategy) ?? asString(payload.strategy) ?? null;
+  const watcherEndpoint = asString(watcherRecord?.endpoint) ?? asString(payload.endpoint) ?? null;
+  const watcherMatch = asString(watcherRecord?.match) ?? asString(payload.match) ?? null;
+  const watcherConditions = Array.isArray(watcherRecord?.conditions)
+    ? watcherRecord.conditions
+    : Array.isArray(payload.conditions)
+      ? payload.conditions
+      : [];
+  const watcherFireOnce = asBoolean(watcherRecord?.fireOnce ?? payload.fireOnce) ?? null;
+
+  const triggerPriority = asString(payload.priority) ?? asString(triggerRecord?.priority) ?? null;
 
   const envelope: SentinelEventEnvelope = {
     watcherId: watcherId ?? null,
     eventName: eventName ?? null,
     matchedAt,
-    payload: boundedPayload,
+    watcher: {
+      id: watcherId ?? null,
+      skillId: skillId ?? null,
+      eventName: eventName ?? null,
+      intent: watcherIntent,
+      strategy: watcherStrategy,
+      endpoint: watcherEndpoint,
+      match: watcherMatch,
+      conditions: watcherConditions,
+      fireOnce: watcherFireOnce,
+    },
+    trigger: {
+      matchedAt,
+      dedupeKey,
+      priority: triggerPriority,
+    },
+    context: clipPayloadForPrompt(rawContext),
+    payload: clipPayloadForPrompt(rawPayload),
     dedupeKey,
     correlationId: dedupeKey,
     source: {
@@ -325,8 +383,28 @@ function buildSentinelEventEnvelope(payload: Record<string, unknown>): SentinelE
 }
 
 function buildSentinelSystemEvent(envelope: SentinelEventEnvelope): string {
-  const jsonEnvelope = JSON.stringify(envelope, null, 2);
-  const text = `${SENTINEL_EVENT_INSTRUCTION_PREFIX}\nSENTINEL_ENVELOPE_JSON:\n${jsonEnvelope}`;
+  const callbackContext = {
+    watcher: envelope.watcher,
+    trigger: envelope.trigger,
+    source: envelope.source,
+    deliveryTargets: envelope.deliveryTargets ?? [],
+    deliveryContext: envelope.deliveryContext ?? null,
+    context: envelope.context,
+    payload: envelope.payload,
+  };
+
+  const text = [
+    SENTINEL_EVENT_INSTRUCTION_PREFIX,
+    "Callback handling requirements:",
+    "- Base actions on watcher intent/event/skill plus the callback context and payload.",
+    "- Return a concise user-facing response that reflects what triggered and what to do next.",
+    "- Never emit control tokens such as NO_REPLY or HEARTBEAT_OK.",
+    "SENTINEL_CALLBACK_CONTEXT_JSON:",
+    JSON.stringify(callbackContext, null, 2),
+    "SENTINEL_ENVELOPE_JSON:",
+    JSON.stringify(envelope, null, 2),
+  ].join("\n");
+
   return trimText(text, MAX_SENTINEL_WEBHOOK_TEXT_CHARS);
 }
 
@@ -442,13 +520,12 @@ function summarizeContext(value: unknown): string | undefined {
 function buildRelayMessage(envelope: SentinelEventEnvelope): string {
   const title = envelope.eventName ? `Sentinel alert: ${envelope.eventName}` : "Sentinel alert";
   const watcher = envelope.watcherId ? `watcher ${envelope.watcherId}` : "watcher unknown";
+  const intent = envelope.watcher.intent ? `intent ${envelope.watcher.intent}` : undefined;
 
-  const payloadRecord = isRecord(envelope.payload) ? envelope.payload : undefined;
-  const contextSummary = summarizeContext(
-    payloadRecord && isRecord(payloadRecord.context) ? payloadRecord.context : payloadRecord,
-  );
+  const contextSummary = summarizeContext(envelope.context) ?? summarizeContext(envelope.payload);
 
   const lines = [title, `${watcher} · ${envelope.matchedAt}`];
+  if (intent) lines.push(intent);
   if (contextSummary) lines.push(contextSummary);
 
   const text = lines.join("\n").trim();
@@ -457,11 +534,26 @@ function buildRelayMessage(envelope: SentinelEventEnvelope): string {
     : "Sentinel callback received, but no assistant detail was generated.";
 }
 
+function normalizeControlTokenCandidate(value: string): string {
+  return value.replace(/[^a-zA-Z]/g, "").toUpperCase();
+}
+
+function sanitizeAssistantRelaySegment(value: string): string {
+  if (typeof value !== "string") return "";
+
+  const tokenCandidate = normalizeControlTokenCandidate(value.trim());
+  if (tokenCandidate === "NOREPLY" || tokenCandidate === "HEARTBEATOK") return "";
+
+  const withoutTokens = value.replace(RESERVED_CONTROL_TOKEN_PATTERN, " ").trim();
+  if (!withoutTokens) return "";
+
+  const collapsed = withoutTokens.replace(/\s+/g, " ").trim();
+  return /[a-zA-Z0-9]/.test(collapsed) ? collapsed : "";
+}
+
 function normalizeAssistantRelayText(assistantTexts: string[]): string | undefined {
   if (!Array.isArray(assistantTexts) || assistantTexts.length === 0) return undefined;
-  const parts = assistantTexts
-    .map((value) => value.replace(HEARTBEAT_ACK_TOKEN_PATTERN, "").trim())
-    .filter(Boolean);
+  const parts = assistantTexts.map(sanitizeAssistantRelaySegment).filter(Boolean);
   if (parts.length === 0) return undefined;
   return trimText(parts.join("\n\n"), MAX_SENTINEL_WEBHOOK_TEXT_CHARS);
 }
@@ -740,9 +832,7 @@ class HookResponseRelayManager {
 
   async handleLlmOutput(sessionKey: string | undefined, assistantTexts: string[]): Promise<void> {
     if (!sessionKey) return;
-
-    const assistantMessage = normalizeAssistantRelayText(assistantTexts);
-    if (!assistantMessage) return;
+    if (!Array.isArray(assistantTexts) || assistantTexts.length === 0) return;
 
     const dedupeKey = this.popNextPendingDedupe(sessionKey);
     if (!dedupeKey) return;
@@ -750,7 +840,13 @@ class HookResponseRelayManager {
     const pending = this.pendingByDedupe.get(dedupeKey);
     if (!pending || pending.state !== "pending") return;
 
-    await this.completeWithMessage(pending, assistantMessage, "assistant");
+    const assistantMessage = normalizeAssistantRelayText(assistantTexts);
+    if (assistantMessage) {
+      await this.completeWithMessage(pending, assistantMessage, "assistant");
+      return;
+    }
+
+    await this.completeWithMessage(pending, pending.fallbackMessage, "guardrail");
   }
 
   dispose(): void {
@@ -856,14 +952,21 @@ class HookResponseRelayManager {
   private async completeWithMessage(
     pending: PendingHookResponse,
     message: string,
-    source: "assistant" | "timeout",
+    source: "assistant" | "timeout" | "guardrail",
   ): Promise<void> {
     const delivery = await deliverMessageToTargets(this.api, pending.relayTargets, message);
 
     this.markClosed(pending, source === "assistant" ? "completed" : "timed_out");
 
+    const action =
+      source === "assistant"
+        ? "Relayed assistant response"
+        : source === "guardrail"
+          ? "Sent guardrail fallback"
+          : "Sent timeout fallback";
+
     this.api.logger?.info?.(
-      `[openclaw-sentinel] ${source === "assistant" ? "Relayed assistant response" : "Sent timeout fallback"} for dedupe=${pending.dedupeKey} delivered=${delivery.delivered} failed=${delivery.failed}`,
+      `[openclaw-sentinel] ${action} for dedupe=${pending.dedupeKey} delivered=${delivery.delivered} failed=${delivery.failed}`,
     );
   }
 

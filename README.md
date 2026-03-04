@@ -154,10 +154,10 @@ Use `sentinel_control`:
 1. Sentinel evaluates conditions.
 2. On match, it dispatches a generic callback envelope (`type: "sentinel.callback"`) to `localDispatchBase + webhookPath`.
 3. The envelope includes stable keys (`intent`, `context`, `watcher`, `trigger`, bounded `payload`, `deliveryTargets`, `deliveryContext`, `source`) so downstream agent behavior is workflow-agnostic.
-4. For `/hooks/sentinel`, Sentinel enqueues an instruction-prefixed system event plus structured JSON envelope with a cron-tagged callback context, then requests an immediate `cron:sentinel-callback` wake (avoids heartbeat-poll prompting).
+4. For `/hooks/sentinel`, Sentinel enqueues an instruction-prefixed system event with a **structured callback prompt context** (`watcher`, `trigger`, `source`, `deliveryTargets`, `deliveryContext`, `context`, `payload`) plus the full envelope, then requests an immediate `cron:sentinel-callback` wake (avoids heartbeat-poll prompting).
 5. The hook route creates a **response-delivery contract** keyed by callback dedupe key, preserving original chat/session context (`deliveryContext`) and intended relay targets.
 6. OpenClaw processes each callback in an isolated hook session: per-watcher by default, or grouped when `hookSessionGroup` / `fire.sessionGroup` is set. Shared global hook-session mode is intentionally not supported.
-7. When hook-session LLM output arrives, Sentinel relays assistant-authored text to the original chat context. If no assistant output arrives before `hookResponseTimeoutMs`, optional fallback relay behavior is applied (`hookResponseFallbackMode`).
+7. Relay guardrails suppress control-token outputs (`NO_REPLY`, `HEARTBEAT_OK`, empty variants). If model output is unusable, Sentinel emits a concise contextual fallback message. Timeout fallback behavior still follows `hookResponseFallbackMode`.
 
 The `/hooks/sentinel` route is auto-registered on plugin startup (idempotent). Response contracts are dedupe-aware by callback dedupe key (`hookResponseDedupeWindowMs`).
 
@@ -169,7 +169,17 @@ Sample emitted envelope:
   "version": "1",
   "intent": "price_threshold_review",
   "actionable": true,
-  "watcher": { "id": "eth-price-watch", "skillId": "skills.alerts", "eventName": "eth_target_hit" },
+  "watcher": {
+    "id": "eth-price-watch",
+    "skillId": "skills.alerts",
+    "eventName": "eth_target_hit",
+    "intent": "price_threshold_review",
+    "strategy": "http-poll",
+    "endpoint": "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd",
+    "match": "all",
+    "conditions": [{ "path": "ethereum.usd", "op": "gte", "value": 5000 }],
+    "fireOnce": false
+  },
   "trigger": {
     "matchedAt": "2026-03-04T15:00:00.000Z",
     "dedupeKey": "<sha256>",
@@ -363,10 +373,11 @@ Precedence: **watcher override > global setting**.
 1. Callback is enqueued to isolated hook session.
 2. Contract captures original delivery context (`deliveryContext` + resolved `deliveryTargets`).
 3. First assistant-authored `llm_output` for that pending callback is relayed to target chat.
-4. If no assistant output arrives in time (`hookResponseTimeoutMs`), fallback is configurable:
+4. Reserved control outputs are never relayed (`NO_REPLY`, `HEARTBEAT_OK`, empty variants). If output is unusable, Sentinel sends a concise contextual guardrail fallback.
+5. If no assistant output arrives in time (`hookResponseTimeoutMs`), timeout fallback is configurable:
    - `hookResponseFallbackMode: "concise"` (default) sends a short fail-safe relay.
-   - `hookResponseFallbackMode: "none"` suppresses fallback.
-5. Repeated callbacks with same dedupe key are idempotent within `hookResponseDedupeWindowMs`.
+   - `hookResponseFallbackMode: "none"` suppresses timeout fallback.
+6. Repeated callbacks with same dedupe key are idempotent within `hookResponseDedupeWindowMs`.
 
 Example config:
 
