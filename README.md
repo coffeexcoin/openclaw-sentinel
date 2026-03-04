@@ -28,6 +28,11 @@ Add/update `~/.openclaw/openclaw.json`:
     // Optional: where /hooks/sentinel events are queued in the LLM loop.
     hookSessionKey: "agent:main:main",
 
+    // Optional: payload style for chat notifications sent via deliveryTargets.
+    // "concise" (default) sends human-friendly relay text only.
+    // "debug" appends a structured sentinel envelope block for diagnostics.
+    // notificationPayloadMode: "concise",
+
     // Optional: bearer token used for dispatch calls back to gateway.
     // Set this to your gateway auth token when gateway auth is enabled.
     // dispatchAuthToken: "<gateway-token>"
@@ -184,6 +189,69 @@ It **does not** execute user-authored code from watcher definitions.
 ```
 
 `deliveryTargets` is optional. If omitted on `create`, Sentinel infers a default target from the current tool/session context (channel + current peer).
+
+## Notification payload delivery modes
+
+Default behavior is **non-noisy**: Sentinel sends concise user-facing relay text to `deliveryTargets` and does not dump raw JSON blobs.
+
+If you previously depended on raw JSON chat messages, set `notificationPayloadMode` to `"debug"` globally (or per watcher) to restore diagnostic envelope output.
+
+### 1) Global debug OFF (default)
+
+```json5
+{
+  sentinel: {
+    allowedHosts: ["api.github.com"],
+    notificationPayloadMode: "concise",
+  },
+}
+```
+
+### 2) Global debug ON
+
+```json5
+{
+  sentinel: {
+    allowedHosts: ["api.github.com"],
+    notificationPayloadMode: "debug",
+  },
+}
+```
+
+In debug mode, delivery notifications include the same concise relay line plus a `SENTINEL_DEBUG_ENVELOPE_JSON` block for diagnostics.
+
+### 3) Per-watcher override (`watcher.fire.notificationPayloadMode`)
+
+```json
+{
+  "action": "create",
+  "watcher": {
+    "id": "status-watch",
+    "skillId": "skills.ops",
+    "enabled": true,
+    "strategy": "http-poll",
+    "endpoint": "https://status.example.com/api/health",
+    "intervalMs": 10000,
+    "match": "all",
+    "conditions": [{ "path": "status", "op": "eq", "value": "degraded" }],
+    "fire": {
+      "webhookPath": "/hooks/agent",
+      "eventName": "service_degraded",
+      "notificationPayloadMode": "debug",
+      "payloadTemplate": { "event": "${event.name}", "status": "${payload.status}" }
+    },
+    "retry": { "maxRetries": 5, "baseMs": 250, "maxMs": 5000 }
+  }
+}
+```
+
+Allowed values:
+
+- `inherit` (or omitted): follow global `notificationPayloadMode`
+- `concise`: force concise notification text for this watcher
+- `debug`: force debug envelope output for this watcher
+
+Precedence: **watcher override > global setting**.
 
 ## Runtime controls
 

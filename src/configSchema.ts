@@ -12,6 +12,8 @@ const LimitsSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const NotificationPayloadModeSchema = Type.Union([Type.Literal("concise"), Type.Literal("debug")]);
+
 const ConfigSchema = Type.Object(
   {
     allowedHosts: Type.Array(Type.String()),
@@ -19,6 +21,7 @@ const ConfigSchema = Type.Object(
     dispatchAuthToken: Type.Optional(Type.String()),
     hookSessionKey: Type.Optional(Type.String({ minLength: 1 })),
     stateFilePath: Type.Optional(Type.String()),
+    notificationPayloadMode: Type.Optional(NotificationPayloadModeSchema),
     limits: Type.Optional(LimitsSchema),
   },
   { additionalProperties: false },
@@ -38,6 +41,7 @@ function withDefaults(value: Record<string, unknown>): Record<string, unknown> {
     hookSessionKey:
       typeof value.hookSessionKey === "string" ? value.hookSessionKey : "agent:main:main",
     stateFilePath: typeof value.stateFilePath === "string" ? value.stateFilePath : undefined,
+    notificationPayloadMode: value.notificationPayloadMode === "debug" ? "debug" : "concise",
     limits: {
       maxWatchersTotal:
         typeof limitsIn.maxWatchersTotal === "number" ? limitsIn.maxWatchersTotal : 200,
@@ -128,6 +132,13 @@ export const sentinelConfigSchema: OpenClawPluginConfigSchema = {
         type: "string",
         description: "Custom path for the sentinel state persistence file",
       },
+      notificationPayloadMode: {
+        type: "string",
+        enum: ["concise", "debug"],
+        description:
+          "Controls what gets sent to deliveryTargets: concise relay text only (default) or relay text with debug envelope payload",
+        default: "concise",
+      },
       limits: {
         type: "object",
         additionalProperties: false,
@@ -180,6 +191,11 @@ export const sentinelConfigSchema: OpenClawPluginConfigSchema = {
     stateFilePath: {
       label: "State File Path",
       help: "Custom path for sentinel state persistence file",
+      advanced: true,
+    },
+    notificationPayloadMode: {
+      label: "Notification Payload Mode",
+      help: "Choose concise relay text (default) or include debug envelope payload in delivery target messages",
       advanced: true,
     },
     "limits.maxWatchersTotal": {

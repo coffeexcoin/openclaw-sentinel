@@ -48,10 +48,12 @@ describe("validator", () => {
         },
         priority: "high",
         deadlineTemplate: "${timestamp}",
+        notificationPayloadMode: "debug",
       },
     });
     expect(watcher.fire.intent).toBe("incident_triage");
     expect(watcher.fire.priority).toBe("high");
+    expect(watcher.fire.notificationPayloadMode).toBe("debug");
   });
 
   it("rejects unknown fields", () => {

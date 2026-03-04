@@ -81,7 +81,12 @@
           "enum": ["low", "normal", "high", "critical"]
         },
         "deadlineTemplate": { "type": "string", "minLength": 1 },
-        "dedupeKeyTemplate": { "type": "string", "minLength": 1 }
+        "dedupeKeyTemplate": { "type": "string", "minLength": 1 },
+        "notificationPayloadMode": {
+          "type": "string",
+          "enum": ["inherit", "concise", "debug"],
+          "description": "Per-watcher notification payload mode override for deliveryTargets"
+        }
       }
     },
     "retry": {

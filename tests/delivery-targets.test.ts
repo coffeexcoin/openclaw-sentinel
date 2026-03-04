@@ -166,6 +166,9 @@ describe("delivery targets", () => {
 
       expect(dispatchSpy).toHaveBeenCalledTimes(1);
       expect(notifySpy).toHaveBeenCalledTimes(2);
+      const message = String(notifySpy.mock.calls[0]?.[1] ?? "");
+      expect(message).toContain('Sentinel watcher "w-fanout" fired event "evt"');
+      expect(message).not.toContain('"type": "sentinel.callback"');
       const status = manager.status("w-fanout");
       expect(status?.lastDelivery?.successCount).toBe(1);
       expect(status?.lastDelivery?.failureCount).toBe(1);
@@ -174,5 +177,85 @@ describe("delivery targets", () => {
     } finally {
       globalThis.fetch = oldFetch;
     }
+  });
+
+  async function fireAndCaptureMessage(options?: {
+    globalMode?: "concise" | "debug";
+    watcherMode?: "inherit" | "concise" | "debug";
+  }) {
+    const notifySpy = vi.fn(async () => {});
+    const manager = new WatcherManager(
+      {
+        allowedHosts: ["api.github.com"],
+        localDispatchBase: "http://127.0.0.1:18789",
+        stateFilePath: stateFile("sentinel-mode-capture"),
+        notificationPayloadMode: options?.globalMode,
+        limits: {
+          maxWatchersTotal: 10,
+          maxWatchersPerSkill: 10,
+          maxConditionsPerWatcher: 10,
+          maxIntervalMsFloor: 1,
+        },
+      },
+      { dispatch: vi.fn(async () => {}) },
+      {
+        notify: async (target, message) => {
+          await notifySpy(target, message);
+        },
+      },
+    );
+
+    const oldFetch = globalThis.fetch;
+    // @ts-ignore
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      headers: { get: () => "application/json" },
+      json: async () => ({ ok: true, source: "test" }),
+    }));
+
+    try {
+      await manager.init();
+      await manager.create({
+        ...watcherInput(),
+        id: `w-mode-${Math.random().toString(16).slice(2)}`,
+        enabled: true,
+        intervalMs: 1,
+        conditions: [{ path: "ok", op: "eq", value: true }],
+        fireOnce: true,
+        fire: {
+          ...watcherInput().fire,
+          ...(options?.watcherMode ? { notificationPayloadMode: options.watcherMode } : {}),
+        },
+        deliveryTargets: [{ channel: "telegram", to: "111" }],
+      });
+
+      await new Promise((r) => setTimeout(r, 20));
+      expect(notifySpy).toHaveBeenCalledTimes(1);
+      return String(notifySpy.mock.calls[0]?.[1] ?? "");
+    } finally {
+      globalThis.fetch = oldFetch;
+    }
+  }
+
+  it("includes debug envelope when global mode is debug", async () => {
+    const message = await fireAndCaptureMessage({ globalMode: "debug" });
+    expect(message).toContain("SENTINEL_DEBUG_ENVELOPE_JSON:");
+    expect(message).toContain('"type": "sentinel.callback"');
+  });
+
+  it("applies per-watcher override over global mode", async () => {
+    const forcedConcise = await fireAndCaptureMessage({
+      globalMode: "debug",
+      watcherMode: "concise",
+    });
+    expect(forcedConcise).not.toContain("SENTINEL_DEBUG_ENVELOPE_JSON:");
+    expect(forcedConcise).not.toContain('"type": "sentinel.callback"');
+
+    const forcedDebug = await fireAndCaptureMessage({
+      globalMode: "concise",
+      watcherMode: "debug",
+    });
+    expect(forcedDebug).toContain("SENTINEL_DEBUG_ENVELOPE_JSON:");
+    expect(forcedDebug).toContain('"type": "sentinel.callback"');
   });
 });

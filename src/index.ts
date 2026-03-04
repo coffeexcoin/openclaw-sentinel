@@ -230,6 +230,7 @@ export function createSentinelPlugin(overrides?: Partial<SentinelConfig>) {
     localDispatchBase: "http://127.0.0.1:18789",
     dispatchAuthToken: process.env.SENTINEL_DISPATCH_TOKEN,
     hookSessionKey: DEFAULT_HOOK_SESSION_KEY,
+    notificationPayloadMode: "concise",
     limits: {
       maxWatchersTotal: 200,
       maxWatchersPerSkill: 20,

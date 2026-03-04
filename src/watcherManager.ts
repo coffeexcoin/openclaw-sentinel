@@ -12,12 +12,47 @@ import {
   DEFAULT_SENTINEL_WEBHOOK_PATH,
   DeliveryTarget,
   GatewayWebhookDispatcher,
+  NotificationPayloadMode,
   SentinelConfig,
   WatcherDefinition,
   WatcherRuntimeState,
 } from "./types.js";
 
 export const RESET_BACKOFF_AFTER_MS = 60_000;
+const MAX_DEBUG_NOTIFICATION_CHARS = 7000;
+
+function trimForChat(text: string): string {
+  if (text.length <= MAX_DEBUG_NOTIFICATION_CHARS) return text;
+  return `${text.slice(0, MAX_DEBUG_NOTIFICATION_CHARS)}…`;
+}
+
+function resolveNotificationPayloadMode(
+  config: SentinelConfig,
+  watcher: WatcherDefinition,
+): NotificationPayloadMode {
+  const override = watcher.fire.notificationPayloadMode;
+  if (override === "concise" || override === "debug") return override;
+  return config.notificationPayloadMode === "debug" ? "debug" : "concise";
+}
+
+function buildDeliveryNotificationMessage(
+  watcher: WatcherDefinition,
+  body: Record<string, unknown>,
+  mode: NotificationPayloadMode,
+): string {
+  const matchedAt =
+    typeof body.trigger === "object" &&
+    body.trigger !== null &&
+    typeof (body.trigger as Record<string, unknown>).matchedAt === "string"
+      ? ((body.trigger as Record<string, unknown>).matchedAt as string)
+      : new Date().toISOString();
+
+  const concise = `Sentinel watcher "${watcher.id}" fired event "${watcher.fire.eventName}" at ${matchedAt}.`;
+  if (mode !== "debug") return concise;
+
+  const envelopeJson = JSON.stringify(body, null, 2) ?? "{}";
+  return trimForChat(`${concise}\n\nSENTINEL_DEBUG_ENVELOPE_JSON:\n${envelopeJson}`);
+}
 
 export interface WatcherCreateContext {
   deliveryTargets?: DeliveryTarget[];
@@ -233,7 +268,11 @@ export class WatcherManager {
 
           if (watcher.deliveryTargets?.length && this.notifier) {
             const attemptedAt = new Date().toISOString();
-            const message = JSON.stringify(body);
+            const message = buildDeliveryNotificationMessage(
+              watcher,
+              body,
+              resolveNotificationPayloadMode(this.config, watcher),
+            );
             const failures: Array<{ target: DeliveryTarget; error: string }> = [];
             let successCount = 0;
 

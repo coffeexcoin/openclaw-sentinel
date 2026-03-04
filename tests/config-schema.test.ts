@@ -8,6 +8,7 @@ describe("sentinel config schema", () => {
     expect(parsed?.data).toMatchObject({
       allowedHosts: [],
       localDispatchBase: "http://127.0.0.1:18789",
+      notificationPayloadMode: "concise",
       limits: {
         maxWatchersTotal: 200,
         maxWatchersPerSkill: 20,
@@ -15,6 +16,14 @@ describe("sentinel config schema", () => {
         maxIntervalMsFloor: 1000,
       },
     });
+  });
+
+  it("accepts debug notification payload mode", () => {
+    const parsed = sentinelConfigSchema.safeParse?.({ notificationPayloadMode: "debug" });
+    expect(parsed?.success).toBe(true);
+    if (parsed?.success) {
+      expect(parsed.data?.notificationPayloadMode).toBe("debug");
+    }
   });
 
   it("rejects invalid localDispatchBase URL", () => {

@@ -16,7 +16,8 @@ In config, you **must** set `allowedHosts` — no hosts are allowed by default. 
   "sentinel": {
     "allowedHosts": ["api.github.com", "api.coingecko.com", "status.example.com"],
     "localDispatchBase": "http://127.0.0.1:18789",
-    "hookSessionKey": "agent:main:main"
+    "hookSessionKey": "agent:main:main",
+    "notificationPayloadMode": "concise"
   }
 }
 ```
@@ -125,7 +126,53 @@ You can override with explicit `deliveryTargets` (supports multiple destinations
 
 ---
 
-## 4) One-shot trigger (`fireOnce`)
+## 4) Notification payload modes (global + per-watcher override)
+
+By default, Sentinel sends concise delivery text only and does **not** dump raw JSON into chat destinations.
+If you relied on legacy raw payload messages, switch mode to `debug` globally or per watcher.
+
+Global defaults in plugin config:
+
+- `"notificationPayloadMode": "concise"` (default)
+- `"notificationPayloadMode": "debug"` (adds `SENTINEL_DEBUG_ENVELOPE_JSON` block)
+
+Per watcher, override under `watcher.fire.notificationPayloadMode`:
+
+```json
+{
+  "action": "create",
+  "watcher": {
+    "id": "status-watch-debug",
+    "skillId": "skills.ops",
+    "enabled": true,
+    "strategy": "http-poll",
+    "endpoint": "https://status.example.com/api/health",
+    "intervalMs": 10000,
+    "match": "all",
+    "conditions": [{ "path": "status", "op": "eq", "value": "degraded" }],
+    "fire": {
+      "webhookPath": "/hooks/agent",
+      "eventName": "service_degraded",
+      "notificationPayloadMode": "debug",
+      "payloadTemplate": { "event": "${event.name}", "status": "${payload.status}" }
+    },
+    "retry": { "maxRetries": 8, "baseMs": 500, "maxMs": 30000 },
+    "deliveryTargets": [{ "channel": "telegram", "to": "5613673222" }]
+  }
+}
+```
+
+Allowed override values:
+
+- `inherit` (or omitted): use global mode
+- `concise`: force concise output for this watcher
+- `debug`: force debug envelope for this watcher
+
+Precedence: **watcher override > global setting**.
+
+---
+
+## 5) One-shot trigger (`fireOnce`)
 
 Use `fireOnce: true` to dispatch once and auto-disable:
 
@@ -158,7 +205,7 @@ Use `fireOnce: true` to dispatch once and auto-disable:
 
 ---
 
-## 5) CI run completion monitor
+## 6) CI run completion monitor
 
 ```json
 {
@@ -194,7 +241,7 @@ Use `fireOnce: true` to dispatch once and auto-disable:
 
 ---
 
-## 6) Runtime control actions
+## 7) Runtime control actions
 
 Check status:
 
@@ -216,7 +263,7 @@ Remove:
 
 ---
 
-## 7) Skill integration pattern
+## 8) Skill integration pattern
 
 Typical skill flow:
 

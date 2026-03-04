@@ -58,6 +58,12 @@ const FireConfigSchema = Type.Object({
   dedupeKeyTemplate: Type.Optional(
     Type.String({ description: "Optional template to derive deterministic trigger dedupe key" }),
   ),
+  notificationPayloadMode: Type.Optional(
+    Type.Union([Type.Literal("inherit"), Type.Literal("concise"), Type.Literal("debug")], {
+      description:
+        "Notification payload mode override for deliveryTargets (inherit global default, concise relay text, or debug envelope block)",
+    }),
+  ),
 });
 
 const RetryPolicySchema = Type.Object({

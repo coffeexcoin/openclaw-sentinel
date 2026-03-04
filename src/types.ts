@@ -21,6 +21,8 @@ export interface Condition {
 export const DEFAULT_SENTINEL_WEBHOOK_PATH = "/hooks/sentinel";
 
 export type PriorityLevel = "low" | "normal" | "high" | "critical";
+export type NotificationPayloadMode = "concise" | "debug";
+export type NotificationPayloadModeOverride = "inherit" | NotificationPayloadMode;
 
 export interface FireConfig {
   webhookPath?: string;
@@ -31,6 +33,7 @@ export interface FireConfig {
   priority?: PriorityLevel;
   deadlineTemplate?: string;
   dedupeKeyTemplate?: string;
+  notificationPayloadMode?: NotificationPayloadModeOverride;
 }
 
 export interface RetryPolicy {
@@ -104,6 +107,7 @@ export interface SentinelConfig {
   dispatchAuthToken?: string;
   hookSessionKey?: string;
   stateFilePath?: string;
+  notificationPayloadMode?: NotificationPayloadMode;
   limits: SentinelLimits;
 }
 
