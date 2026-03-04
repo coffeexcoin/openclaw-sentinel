@@ -54,6 +54,17 @@ describe("callback envelope", () => {
 
     expect(envelope.intent).toBe("incident_triage");
     expect(envelope.context).toEqual({ service: "payments-api", severity: "sev2" });
+    expect(envelope.watcher as any).toMatchObject({
+      id: "w1",
+      skillId: "skills.alerts",
+      eventName: "service_degraded",
+      intent: "incident_triage",
+      strategy: "http-poll",
+      endpoint: "https://example.com/api",
+      match: "all",
+      conditions: [{ path: "status", op: "eq", value: "degraded" }],
+      fireOnce: false,
+    });
     expect((envelope.trigger as any).priority).toBe("high");
     expect((envelope.trigger as any).deadline).toBe("2026-03-04T16:00:00Z");
     expect((envelope.trigger as any).dedupeKey).toHaveLength(64);

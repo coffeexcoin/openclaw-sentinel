@@ -55,25 +55,35 @@ Move the config to `plugins.entries.openclaw-sentinel.config`.
 
 - Send a JSON object.
 - Preferred shape is a callback envelope (`type: "sentinel.callback"`).
-- Sentinel prepends instructions for the agent to interpret intent/context, apply policy, act, and notify configured targets.
+- Sentinel prepends structured instructions for the agent to use watcher + payload context, apply policy, act safely, and return a user-facing response.
 - Callback processing is isolated by watcher session by default (`...:watcher:<id>`), with optional explicit grouping via `hookSessionGroup`.
-- Hook callbacks now establish a response-delivery contract: assistant `llm_output` is relayed to original targets; fallback relay is optional on timeout.
+- Hook callbacks establish a response-delivery contract: assistant `llm_output` is relayed to original targets.
+- Reserved control outputs are suppressed (`NO_REPLY`, `HEARTBEAT_OK`, empty variants). If model output is unusable, Sentinel emits a concise contextual fallback.
 - Legacy `text`/`message` payloads remain supported for backward compatibility.
 
 Example structured wake event text:
 
 ```text
-SENTINEL_TRIGGER: This system event came from /hooks/sentinel. Evaluate action policy, decide whether to notify configured deliveryTargets, and execute safe follow-up actions.
-SENTINEL_ENVELOPE_JSON:
+SENTINEL_TRIGGER: This system event came from /hooks/sentinel. Use watcher + payload context to decide safe follow-up actions and produce a user-facing response.
+Callback handling requirements:
+- Base actions on watcher intent/event/skill plus the callback context and payload.
+- Return a concise user-facing response that reflects what triggered and what to do next.
+- Never emit control tokens such as NO_REPLY or HEARTBEAT_OK.
+SENTINEL_CALLBACK_CONTEXT_JSON:
 {
-  "type": "sentinel.callback",
-  "version": "1",
-  "intent": "service_health_triage",
-  "actionable": true,
-  "watcher": { "id": "status-watch", "skillId": "skills.ops", "eventName": "service_degraded" },
+  "watcher": {
+    "id": "status-watch",
+    "skillId": "skills.ops",
+    "eventName": "service_degraded",
+    "intent": "service_health_triage",
+    "strategy": "http-poll",
+    "endpoint": "https://status.example.com/api/health",
+    "match": "all",
+    "conditions": [{ "path": "status", "op": "eq", "value": "degraded" }],
+    "fireOnce": false
+  },
   "trigger": { "matchedAt": "2026-03-04T14:12:00.000Z", "dedupeKey": "4f3f2bd2ce1a57cd", "priority": "high" },
-  "context": { "component": "api", "status": "degraded", "runbook": "ops-degraded-service" },
-  "payload": { "component": "api", "status": "degraded" },
+  "source": { "route": "/hooks/sentinel", "plugin": "openclaw-sentinel" },
   "deliveryTargets": [{ "channel": "telegram", "to": "5613673222" }],
   "deliveryContext": {
     "sessionKey": "agent:main:telegram:direct:5613673222",
@@ -81,11 +91,14 @@ SENTINEL_ENVELOPE_JSON:
     "requesterSenderId": "5613673222",
     "currentChat": { "channel": "telegram", "to": "5613673222" }
   },
-  "source": { "route": "/hooks/sentinel", "plugin": "openclaw-sentinel" }
+  "context": { "component": "api", "status": "degraded", "runbook": "ops-degraded-service" },
+  "payload": { "component": "api", "status": "degraded" }
 }
+SENTINEL_ENVELOPE_JSON:
+{ ...full envelope... }
 ```
 
-Agent interpretation guidance: treat this as a sentinel trigger, evaluate action policy against the envelope context, and only notify/act using the declared targets and safe tool policy.
+Agent interpretation guidance: treat this as a sentinel trigger, evaluate action policy against watcher+trigger+payload context, and only notify/act using the declared targets and safe tool policy.
 
 ## 2) Basic watcher creation (agent tool)
 
@@ -236,8 +249,9 @@ Flow:
 1. Callback is enqueued to isolated hook session.
 2. Contract stores original delivery context (`deliveryTargets` and/or `deliveryContext`).
 3. First assistant-authored output is relayed to original chat target(s).
-4. If no assistant output arrives by timeout, optional concise fallback relay is sent.
-5. Duplicate callbacks with same dedupe key inside dedupe window are ignored for extra relay contracts.
+4. Reserved control outputs (`NO_REPLY`, `HEARTBEAT_OK`, empty variants) are suppressed. If output is unusable, Sentinel sends concise contextual guardrail fallback text.
+5. If no assistant output arrives by timeout, optional concise timeout fallback relay is sent.
+6. Duplicate callbacks with same dedupe key inside dedupe window are ignored for extra relay contracts.
 
 ---
 

@@ -136,6 +136,12 @@ export function createCallbackEnvelope(args: {
       id: watcher.id,
       skillId: watcher.skillId,
       eventName: watcher.fire.eventName,
+      intent,
+      strategy: watcher.strategy,
+      endpoint: watcher.endpoint,
+      match: watcher.match,
+      conditions: watcher.conditions,
+      fireOnce: watcher.fireOnce ?? false,
     },
     trigger: {
       matchedAt,

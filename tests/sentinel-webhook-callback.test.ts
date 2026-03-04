@@ -36,6 +36,16 @@ function makeRes(): MockRes {
   };
 }
 
+function extractJsonBlock(text: string, marker: string, nextMarker?: string) {
+  const markerIndex = text.indexOf(marker);
+  if (markerIndex < 0) return undefined;
+  const afterMarker = text.slice(markerIndex + marker.length);
+  const block = nextMarker ? afterMarker.split(nextMarker)[0] : afterMarker;
+  const trimmed = block.trim();
+  if (!trimmed) return undefined;
+  return JSON.parse(trimmed);
+}
+
 function createApiMocks() {
   const hooks = new Map<string, HookHandler>();
   const registerHttpRoute = vi.fn();
@@ -128,6 +138,86 @@ describe("sentinel webhook callback route", () => {
     expect(mocks.requestHeartbeatNow).not.toHaveBeenCalledWith(
       expect.objectContaining({ reason: "hook:sentinel" }),
     );
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("builds structured callback prompt context with watcher and trigger metadata", async () => {
+    const mocks = createApiMocks();
+
+    const plugin = createSentinelPlugin();
+    plugin.register(mocks.api);
+
+    const route = mocks.registerHttpRoute.mock.calls[0][0];
+    const req = makeReq(
+      "POST",
+      JSON.stringify({
+        watcher: {
+          id: "ops-watch",
+          skillId: "skills.ops",
+          eventName: "service_degraded",
+          intent: "incident_triage",
+          strategy: "http-poll",
+          endpoint: "https://status.example.com/health",
+          match: "all",
+          conditions: [{ path: "status", op: "eq", value: "degraded" }],
+          fireOnce: true,
+        },
+        trigger: {
+          matchedAt: "2026-03-04T15:00:00.000Z",
+          dedupeKey: "trigger-ctx-1",
+          priority: "critical",
+        },
+        context: { service: "payments", region: "us-east-1" },
+        payload: { status: "degraded", latencyMs: 820 },
+        deliveryTargets: [{ channel: "telegram", to: "5613673222" }],
+        deliveryContext: {
+          sessionKey: "agent:main:telegram:direct:5613673222",
+          currentChat: { channel: "telegram", to: "5613673222" },
+        },
+        source: { plugin: "openclaw-sentinel", route: "/hooks/sentinel" },
+      }),
+    );
+    const res = makeRes();
+
+    await route.handler(req as any, res as any);
+
+    const [text] = mocks.enqueueSystemEvent.mock.calls[0];
+    expect(String(text)).toContain("Callback handling requirements:");
+    expect(String(text)).toContain("Never emit control tokens");
+
+    const callbackContext = extractJsonBlock(
+      String(text),
+      "SENTINEL_CALLBACK_CONTEXT_JSON:\n",
+      "SENTINEL_ENVELOPE_JSON:\n",
+    );
+
+    expect(callbackContext).toMatchObject({
+      watcher: {
+        id: "ops-watch",
+        skillId: "skills.ops",
+        eventName: "service_degraded",
+        intent: "incident_triage",
+        strategy: "http-poll",
+        endpoint: "https://status.example.com/health",
+        match: "all",
+        conditions: [{ path: "status", op: "eq", value: "degraded" }],
+        fireOnce: true,
+      },
+      trigger: {
+        matchedAt: "2026-03-04T15:00:00.000Z",
+        dedupeKey: "trigger-ctx-1",
+        priority: "critical",
+      },
+      source: { plugin: "openclaw-sentinel", route: "/hooks/sentinel" },
+      deliveryTargets: [{ channel: "telegram", to: "5613673222" }],
+      deliveryContext: {
+        sessionKey: "agent:main:telegram:direct:5613673222",
+        currentChat: { channel: "telegram", to: "5613673222" },
+      },
+      context: { service: "payments", region: "us-east-1" },
+      payload: { status: "degraded", latencyMs: 820 },
+    });
+
     expect(res.statusCode).toBe(200);
   });
 
@@ -246,13 +336,12 @@ describe("sentinel webhook callback route", () => {
     });
   });
 
-  it("never relays literal HEARTBEAT_OK for sentinel callbacks", async () => {
-    vi.useFakeTimers();
+  it("suppresses reserved control outputs and relays concise guardrail fallback", async () => {
     const mocks = createApiMocks();
 
     const plugin = createSentinelPlugin({
-      hookResponseTimeoutMs: 1000,
-      hookResponseFallbackMode: "concise",
+      hookResponseTimeoutMs: 60_000,
+      hookResponseFallbackMode: "none",
     });
     plugin.register(mocks.api);
 
@@ -272,19 +361,50 @@ describe("sentinel webhook callback route", () => {
     );
 
     await llmOutput?.(
-      { assistantTexts: ["HEARTBEAT_OK"] },
+      { assistantTexts: ["   `NO_REPLY`   ", "HEARTBEAT_OK"] },
       { sessionKey: "agent:main:hooks:sentinel:watcher:btc-price" },
     );
-
-    expect(mocks.sendMessageTelegram).toHaveBeenCalledTimes(0);
-
-    await vi.advanceTimersByTimeAsync(1000);
-    await vi.runAllTimersAsync();
 
     expect(mocks.sendMessageTelegram).toHaveBeenCalledTimes(1);
     const [, fallbackMessage] = mocks.sendMessageTelegram.mock.calls[0];
     expect(String(fallbackMessage)).toContain("Sentinel alert: price_alert");
+    expect(String(fallbackMessage)).not.toContain("NO_REPLY");
     expect(String(fallbackMessage)).not.toContain("HEARTBEAT_OK");
+  });
+
+  it("falls back when assistant output is unusable/empty variants", async () => {
+    const mocks = createApiMocks();
+
+    const plugin = createSentinelPlugin({
+      hookResponseTimeoutMs: 60_000,
+      hookResponseFallbackMode: "none",
+    });
+    plugin.register(mocks.api);
+
+    const llmOutput = mocks.hooks.get("llm_output");
+    const route = mocks.registerHttpRoute.mock.calls[0][0];
+
+    await route.handler(
+      makeReq(
+        "POST",
+        JSON.stringify({
+          watcherId: "empty-variant",
+          eventName: "service_degraded",
+          dedupeKey: "empty-out-1",
+          deliveryTargets: [{ channel: "telegram", to: "5613673222" }],
+        }),
+      ) as any,
+      makeRes() as any,
+    );
+
+    await llmOutput?.(
+      { assistantTexts: ["  ", "__NO REPLY__"] },
+      { sessionKey: "agent:main:hooks:sentinel:watcher:empty-variant" },
+    );
+
+    expect(mocks.sendMessageTelegram).toHaveBeenCalledTimes(1);
+    const [, fallbackMessage] = mocks.sendMessageTelegram.mock.calls[0];
+    expect(String(fallbackMessage)).toContain("Sentinel alert: service_degraded");
   });
 
   it("uses callback deliveryContext as fallback relay target when deliveryTargets are absent", async () => {
