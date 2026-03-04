@@ -179,11 +179,12 @@ describe("delivery targets", () => {
     }
   });
 
-  async function fireAndCaptureMessage(options?: {
-    globalMode?: "concise" | "debug";
-    watcherMode?: "inherit" | "concise" | "debug";
+  async function fireAndCaptureDelivery(options?: {
+    globalMode?: "none" | "concise" | "debug";
+    watcherMode?: "inherit" | "none" | "concise" | "debug";
   }) {
     const notifySpy = vi.fn(async () => {});
+    const dispatchSpy = vi.fn(async () => {});
     const manager = new WatcherManager(
       {
         allowedHosts: ["api.github.com"],
@@ -197,7 +198,7 @@ describe("delivery targets", () => {
           maxIntervalMsFloor: 1,
         },
       },
-      { dispatch: vi.fn(async () => {}) },
+      { dispatch: dispatchSpy },
       {
         notify: async (target, message) => {
           await notifySpy(target, message);
@@ -230,32 +231,63 @@ describe("delivery targets", () => {
       });
 
       await new Promise((r) => setTimeout(r, 20));
-      expect(notifySpy).toHaveBeenCalledTimes(1);
-      return String(notifySpy.mock.calls[0]?.[1] ?? "");
+      return {
+        dispatchCalls: dispatchSpy.mock.calls.length,
+        notifyCalls: notifySpy.mock.calls.length,
+        message: String(notifySpy.mock.calls[0]?.[1] ?? ""),
+      };
     } finally {
       globalThis.fetch = oldFetch;
     }
   }
 
   it("includes debug envelope when global mode is debug", async () => {
-    const message = await fireAndCaptureMessage({ globalMode: "debug" });
-    expect(message).toContain("SENTINEL_DEBUG_ENVELOPE_JSON:");
-    expect(message).toContain('"type": "sentinel.callback"');
+    const result = await fireAndCaptureDelivery({ globalMode: "debug" });
+    expect(result.dispatchCalls).toBe(1);
+    expect(result.notifyCalls).toBe(1);
+    expect(result.message).toContain("SENTINEL_DEBUG_ENVELOPE_JSON:");
+    expect(result.message).toContain('"type": "sentinel.callback"');
+  });
+
+  it("suppresses delivery notification message when global mode is none", async () => {
+    const result = await fireAndCaptureDelivery({ globalMode: "none" });
+    expect(result.dispatchCalls).toBe(1);
+    expect(result.notifyCalls).toBe(0);
   });
 
   it("applies per-watcher override over global mode", async () => {
-    const forcedConcise = await fireAndCaptureMessage({
+    const forcedConcise = await fireAndCaptureDelivery({
       globalMode: "debug",
       watcherMode: "concise",
     });
-    expect(forcedConcise).not.toContain("SENTINEL_DEBUG_ENVELOPE_JSON:");
-    expect(forcedConcise).not.toContain('"type": "sentinel.callback"');
+    expect(forcedConcise.dispatchCalls).toBe(1);
+    expect(forcedConcise.notifyCalls).toBe(1);
+    expect(forcedConcise.message).not.toContain("SENTINEL_DEBUG_ENVELOPE_JSON:");
+    expect(forcedConcise.message).not.toContain('"type": "sentinel.callback"');
 
-    const forcedDebug = await fireAndCaptureMessage({
+    const forcedDebug = await fireAndCaptureDelivery({
       globalMode: "concise",
       watcherMode: "debug",
     });
-    expect(forcedDebug).toContain("SENTINEL_DEBUG_ENVELOPE_JSON:");
-    expect(forcedDebug).toContain('"type": "sentinel.callback"');
+    expect(forcedDebug.dispatchCalls).toBe(1);
+    expect(forcedDebug.notifyCalls).toBe(1);
+    expect(forcedDebug.message).toContain("SENTINEL_DEBUG_ENVELOPE_JSON:");
+    expect(forcedDebug.message).toContain('"type": "sentinel.callback"');
+  });
+
+  it("supports per-watcher none override over concise/debug globals", async () => {
+    const overriddenDebug = await fireAndCaptureDelivery({
+      globalMode: "debug",
+      watcherMode: "none",
+    });
+    expect(overriddenDebug.dispatchCalls).toBe(1);
+    expect(overriddenDebug.notifyCalls).toBe(0);
+
+    const overriddenConcise = await fireAndCaptureDelivery({
+      globalMode: "concise",
+      watcherMode: "none",
+    });
+    expect(overriddenConcise.dispatchCalls).toBe(1);
+    expect(overriddenConcise.notifyCalls).toBe(0);
   });
 });

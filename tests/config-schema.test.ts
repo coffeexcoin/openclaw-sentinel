@@ -26,6 +26,14 @@ describe("sentinel config schema", () => {
     }
   });
 
+  it("accepts none notification payload mode", () => {
+    const parsed = sentinelConfigSchema.safeParse?.({ notificationPayloadMode: "none" });
+    expect(parsed?.success).toBe(true);
+    if (parsed?.success) {
+      expect(parsed.data?.notificationPayloadMode).toBe("none");
+    }
+  });
+
   it("rejects invalid localDispatchBase URL", () => {
     const parsed = sentinelConfigSchema.safeParse?.({ localDispatchBase: "not-a-url" });
     expect(parsed?.success).toBe(false);

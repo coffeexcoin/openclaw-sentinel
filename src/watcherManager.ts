@@ -31,7 +31,8 @@ function resolveNotificationPayloadMode(
   watcher: WatcherDefinition,
 ): NotificationPayloadMode {
   const override = watcher.fire.notificationPayloadMode;
-  if (override === "concise" || override === "debug") return override;
+  if (override === "none" || override === "concise" || override === "debug") return override;
+  if (config.notificationPayloadMode === "none") return "none";
   return config.notificationPayloadMode === "debug" ? "debug" : "concise";
 }
 
@@ -266,13 +267,10 @@ export class WatcherManager {
           });
           await this.dispatcher.dispatch(webhookPath, body);
 
-          if (watcher.deliveryTargets?.length && this.notifier) {
+          const deliveryMode = resolveNotificationPayloadMode(this.config, watcher);
+          if (deliveryMode !== "none" && watcher.deliveryTargets?.length && this.notifier) {
             const attemptedAt = new Date().toISOString();
-            const message = buildDeliveryNotificationMessage(
-              watcher,
-              body,
-              resolveNotificationPayloadMode(this.config, watcher),
-            );
+            const message = buildDeliveryNotificationMessage(watcher, body, deliveryMode);
             const failures: Array<{ target: DeliveryTarget; error: string }> = [];
             let successCount = 0;
 

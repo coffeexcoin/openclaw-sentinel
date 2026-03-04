@@ -128,13 +128,14 @@ You can override with explicit `deliveryTargets` (supports multiple destinations
 
 ## 4) Notification payload modes (global + per-watcher override)
 
-By default, Sentinel sends concise delivery text only and does **not** dump raw JSON into chat destinations.
-If you relied on legacy raw payload messages, switch mode to `debug` globally or per watcher.
+Sentinel always dispatches the callback envelope on match.
+`notificationPayloadMode` only controls whether/how additional `deliveryTargets` messages are sent.
 
-Global defaults in plugin config:
+Global options:
 
-- `"notificationPayloadMode": "concise"` (default)
-- `"notificationPayloadMode": "debug"` (adds `SENTINEL_DEBUG_ENVELOPE_JSON` block)
+- `"notificationPayloadMode": "none"` (suppress delivery-target messages)
+- `"notificationPayloadMode": "concise"` (default relay line only)
+- `"notificationPayloadMode": "debug"` (relay line + `SENTINEL_DEBUG_ENVELOPE_JSON` block)
 
 Per watcher, override under `watcher.fire.notificationPayloadMode`:
 
@@ -142,7 +143,7 @@ Per watcher, override under `watcher.fire.notificationPayloadMode`:
 {
   "action": "create",
   "watcher": {
-    "id": "status-watch-debug",
+    "id": "status-watch-callback-only",
     "skillId": "skills.ops",
     "enabled": true,
     "strategy": "http-poll",
@@ -153,7 +154,7 @@ Per watcher, override under `watcher.fire.notificationPayloadMode`:
     "fire": {
       "webhookPath": "/hooks/agent",
       "eventName": "service_degraded",
-      "notificationPayloadMode": "debug",
+      "notificationPayloadMode": "none",
       "payloadTemplate": { "event": "${event.name}", "status": "${payload.status}" }
     },
     "retry": { "maxRetries": 8, "baseMs": 500, "maxMs": 30000 },
@@ -165,10 +166,13 @@ Per watcher, override under `watcher.fire.notificationPayloadMode`:
 Allowed override values:
 
 - `inherit` (or omitted): use global mode
+- `none`: suppress delivery-target messages for this watcher
 - `concise`: force concise output for this watcher
 - `debug`: force debug envelope for this watcher
 
 Precedence: **watcher override > global setting**.
+
+Migration note: existing installs remain `concise` by default. Use `none` when you want callback-only behavior (including `/hooks/sentinel` wake + LLM loop) without extra delivery-target chat noise.
 
 ---
 

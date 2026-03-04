@@ -12,7 +12,11 @@ const LimitsSchema = Type.Object(
   { additionalProperties: false },
 );
 
-const NotificationPayloadModeSchema = Type.Union([Type.Literal("concise"), Type.Literal("debug")]);
+const NotificationPayloadModeSchema = Type.Union([
+  Type.Literal("none"),
+  Type.Literal("concise"),
+  Type.Literal("debug"),
+]);
 
 const ConfigSchema = Type.Object(
   {
@@ -41,7 +45,12 @@ function withDefaults(value: Record<string, unknown>): Record<string, unknown> {
     hookSessionKey:
       typeof value.hookSessionKey === "string" ? value.hookSessionKey : "agent:main:main",
     stateFilePath: typeof value.stateFilePath === "string" ? value.stateFilePath : undefined,
-    notificationPayloadMode: value.notificationPayloadMode === "debug" ? "debug" : "concise",
+    notificationPayloadMode:
+      value.notificationPayloadMode === "none"
+        ? "none"
+        : value.notificationPayloadMode === "debug"
+          ? "debug"
+          : "concise",
     limits: {
       maxWatchersTotal:
         typeof limitsIn.maxWatchersTotal === "number" ? limitsIn.maxWatchersTotal : 200,
@@ -134,9 +143,9 @@ export const sentinelConfigSchema: OpenClawPluginConfigSchema = {
       },
       notificationPayloadMode: {
         type: "string",
-        enum: ["concise", "debug"],
+        enum: ["none", "concise", "debug"],
         description:
-          "Controls what gets sent to deliveryTargets: concise relay text only (default) or relay text with debug envelope payload",
+          "Controls delivery-target notifications: none (suppress message fan-out), concise relay text (default), or relay text with debug envelope payload",
         default: "concise",
       },
       limits: {
@@ -195,7 +204,7 @@ export const sentinelConfigSchema: OpenClawPluginConfigSchema = {
     },
     notificationPayloadMode: {
       label: "Notification Payload Mode",
-      help: "Choose concise relay text (default) or include debug envelope payload in delivery target messages",
+      help: "Choose none (suppress delivery-target messages), concise relay text (default), or include debug envelope payload",
       advanced: true,
     },
     "limits.maxWatchersTotal": {

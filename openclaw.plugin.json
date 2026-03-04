@@ -30,8 +30,8 @@
       },
       "notificationPayloadMode": {
         "type": "string",
-        "enum": ["concise", "debug"],
-        "description": "Controls what gets sent to deliveryTargets: concise relay text only (default) or relay text with debug envelope payload",
+        "enum": ["none", "concise", "debug"],
+        "description": "Controls delivery-target notifications: none (suppress message fan-out), concise relay text (default), or relay text with debug envelope payload",
         "default": "concise"
       },
       "limits": {
@@ -90,7 +90,7 @@
     },
     "notificationPayloadMode": {
       "label": "Notification Payload Mode",
-      "help": "Choose concise relay text (default) or include debug envelope payload in delivery target messages",
+      "help": "Choose none (suppress delivery-target messages), concise relay text (default), or include debug envelope payload",
       "advanced": true
     },
     "limits.maxWatchersTotal": {

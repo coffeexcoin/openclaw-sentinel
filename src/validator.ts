@@ -66,7 +66,12 @@ export const WatcherSchema = Type.Object(
         deadlineTemplate: Type.Optional(Type.String({ minLength: 1 })),
         dedupeKeyTemplate: Type.Optional(Type.String({ minLength: 1 })),
         notificationPayloadMode: Type.Optional(
-          Type.Union([Type.Literal("inherit"), Type.Literal("concise"), Type.Literal("debug")]),
+          Type.Union([
+            Type.Literal("inherit"),
+            Type.Literal("none"),
+            Type.Literal("concise"),
+            Type.Literal("debug"),
+          ]),
         ),
       },
       { additionalProperties: false },

@@ -21,7 +21,7 @@ export interface Condition {
 export const DEFAULT_SENTINEL_WEBHOOK_PATH = "/hooks/sentinel";
 
 export type PriorityLevel = "low" | "normal" | "high" | "critical";
-export type NotificationPayloadMode = "concise" | "debug";
+export type NotificationPayloadMode = "none" | "concise" | "debug";
 export type NotificationPayloadModeOverride = "inherit" | NotificationPayloadMode;
 
 export interface FireConfig {
