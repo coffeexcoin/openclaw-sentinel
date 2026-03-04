@@ -44,8 +44,7 @@
   "dependencies": {
     "@sinclair/typebox": "^0.34.48",
     "re2-wasm": "^1.0.2",
-    "ws": "^8.18.3",
-    "zod": "^3.24.1"
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.7",
