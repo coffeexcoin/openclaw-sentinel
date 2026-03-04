@@ -18,15 +18,26 @@ const ConditionSchema = Type.Object({
     ],
     { description: "Comparison operator" },
   ),
-  value: Type.Optional(Type.Unknown({ description: "Value to compare against (not needed for exists/absent/changed)" })),
+  value: Type.Optional(
+    Type.Unknown({
+      description: "Value to compare against (not needed for exists/absent/changed)",
+    }),
+  ),
 });
 
 const FireConfigSchema = Type.Object({
-  webhookPath: Type.String({ description: "Path appended to localDispatchBase for webhook delivery" }),
-  eventName: Type.String({ description: "Event name included in the dispatched payload" }),
-  payloadTemplate: Type.Record(Type.String(), Type.Union([Type.String(), Type.Number(), Type.Boolean(), Type.Null()]), {
-    description: "Key-value template for the webhook payload. Supports {{mustache}} interpolation from matched response data.",
+  webhookPath: Type.String({
+    description: "Path appended to localDispatchBase for webhook delivery",
   }),
+  eventName: Type.String({ description: "Event name included in the dispatched payload" }),
+  payloadTemplate: Type.Record(
+    Type.String(),
+    Type.Union([Type.String(), Type.Number(), Type.Boolean(), Type.Null()]),
+    {
+      description:
+        "Key-value template for the webhook payload. Supports {{mustache}} interpolation from matched response data.",
+    },
+  ),
 });
 
 const RetryPolicySchema = Type.Object({
@@ -41,15 +52,24 @@ const WatcherSchema = Type.Object(
     skillId: Type.String({ description: "ID of the skill that owns this watcher" }),
     enabled: Type.Boolean({ description: "Whether the watcher is actively polling" }),
     strategy: Type.Union(
-      [Type.Literal("http-poll"), Type.Literal("websocket"), Type.Literal("sse"), Type.Literal("http-long-poll")],
+      [
+        Type.Literal("http-poll"),
+        Type.Literal("websocket"),
+        Type.Literal("sse"),
+        Type.Literal("http-long-poll"),
+      ],
       { description: "Connection strategy" },
     ),
     endpoint: Type.String({ description: "URL to monitor" }),
     method: Type.Optional(
-      Type.Union([Type.Literal("GET"), Type.Literal("POST")], { description: "HTTP method (default GET)" }),
+      Type.Union([Type.Literal("GET"), Type.Literal("POST")], {
+        description: "HTTP method (default GET)",
+      }),
     ),
     headers: Type.Optional(
-      Type.Record(Type.String(), Type.String(), { description: "HTTP headers to include in requests" }),
+      Type.Record(Type.String(), Type.String(), {
+        description: "HTTP headers to include in requests",
+      }),
     ),
     body: Type.Optional(Type.String({ description: "Request body for POST requests" })),
     intervalMs: Type.Optional(Type.Number({ description: "Polling interval in milliseconds" })),
@@ -57,7 +77,9 @@ const WatcherSchema = Type.Object(
     match: Type.Union([Type.Literal("all"), Type.Literal("any")], {
       description: "Whether all or any conditions must match to trigger",
     }),
-    conditions: Type.Array(ConditionSchema, { description: "Conditions evaluated against each response" }),
+    conditions: Type.Array(ConditionSchema, {
+      description: "Conditions evaluated against each response",
+    }),
     fire: FireConfigSchema,
     retry: RetryPolicySchema,
     fireOnce: Type.Optional(
@@ -82,6 +104,8 @@ export const SentinelToolSchema = Type.Object({
     ],
     { description: "The action to perform" },
   ),
-  id: Type.Optional(Type.String({ description: "Watcher ID (required for enable/disable/remove/status)" })),
+  id: Type.Optional(
+    Type.String({ description: "Watcher ID (required for enable/disable/remove/status)" }),
+  ),
   watcher: Type.Optional(WatcherSchema),
 });
