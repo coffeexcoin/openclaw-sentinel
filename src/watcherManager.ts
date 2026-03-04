@@ -14,7 +14,9 @@ import {
   WatcherRuntimeState,
 } from "./types.js";
 
-const backoff = (base: number, max: number, failures: number) => {
+export const RESET_BACKOFF_AFTER_MS = 60_000;
+
+export const backoff = (base: number, max: number, failures: number): number => {
   const raw = Math.min(max, base * 2 ** failures);
   const jitter = Math.floor(raw * 0.25 * (Math.random() * 2 - 1));
   return Math.max(base, raw + jitter);
@@ -45,14 +47,16 @@ export class WatcherManager {
         assertWatcherLimits(this.config, this.list(), watcher);
         this.watchers.set(watcher.id, watcher);
       } catch (err) {
+        const prev = this.runtime[rawWatcher.id];
         this.runtime[rawWatcher.id] = {
           id: rawWatcher.id,
-          consecutiveFailures: (this.runtime[rawWatcher.id]?.consecutiveFailures ?? 0) + 1,
+          consecutiveFailures: (prev?.consecutiveFailures ?? 0) + 1,
+          reconnectAttempts: prev?.reconnectAttempts ?? 0,
           lastError: `Invalid persisted watcher: ${String((err as any)?.message ?? err)}`,
-          lastResponseAt: this.runtime[rawWatcher.id]?.lastResponseAt,
-          lastEvaluated: this.runtime[rawWatcher.id]?.lastEvaluated,
-          lastPayloadHash: this.runtime[rawWatcher.id]?.lastPayloadHash,
-          lastPayload: this.runtime[rawWatcher.id]?.lastPayload,
+          lastResponseAt: prev?.lastResponseAt,
+          lastEvaluated: prev?.lastEvaluated,
+          lastPayloadHash: prev?.lastPayloadHash,
+          lastPayload: prev?.lastPayload,
         };
       }
     }
@@ -66,7 +70,7 @@ export class WatcherManager {
     assertWatcherLimits(this.config, this.list(), watcher);
     if (this.watchers.has(watcher.id)) throw new Error(`Watcher already exists: ${watcher.id}`);
     this.watchers.set(watcher.id, watcher);
-    this.runtime[watcher.id] = { id: watcher.id, consecutiveFailures: 0 };
+    this.runtime[watcher.id] = { id: watcher.id, consecutiveFailures: 0, reconnectAttempts: 0 };
     if (watcher.enabled) await this.startWatcher(watcher.id);
     await this.persist();
     return watcher;
@@ -117,9 +121,22 @@ export class WatcherManager {
     )[watcher.strategy];
 
     const handleFailure = async (err: unknown) => {
-      const rt = this.runtime[id] ?? { id, consecutiveFailures: 0 };
+      const rt = this.runtime[id] ?? { id, consecutiveFailures: 0, reconnectAttempts: 0 };
+      rt.reconnectAttempts ??= 0;
+
+      const errMsg = String(err instanceof Error ? err.message : err);
+      rt.lastDisconnectAt = new Date().toISOString();
+      rt.lastDisconnectReason = errMsg;
+      rt.lastError = errMsg;
+
+      if (rt.lastConnectAt) {
+        const connectedMs = Date.now() - new Date(rt.lastConnectAt).getTime();
+        if (connectedMs >= RESET_BACKOFF_AFTER_MS) {
+          rt.consecutiveFailures = 0;
+        }
+      }
+
       rt.consecutiveFailures += 1;
-      rt.lastError = String((err as any)?.message ?? err);
       this.runtime[id] = rt;
 
       if (this.retryTimers.has(id)) {
@@ -129,6 +146,7 @@ export class WatcherManager {
 
       const delay = backoff(watcher.retry.baseMs, watcher.retry.maxMs, rt.consecutiveFailures);
       if (rt.consecutiveFailures <= watcher.retry.maxRetries && watcher.enabled) {
+        rt.reconnectAttempts += 1;
         await this.stopWatcher(id);
         const timer = setTimeout(() => {
           this.retryTimers.delete(id);
@@ -142,7 +160,7 @@ export class WatcherManager {
     const stop = await handler(
       watcher,
       async (payload) => {
-        const rt = this.runtime[id] ?? { id, consecutiveFailures: 0 };
+        const rt = this.runtime[id] ?? { id, consecutiveFailures: 0, reconnectAttempts: 0 };
         const previousPayload = rt.lastPayload;
         const matched = evaluateConditions(
           watcher.conditions,
@@ -155,6 +173,7 @@ export class WatcherManager {
         rt.lastResponseAt = new Date().toISOString();
         rt.lastEvaluated = rt.lastResponseAt;
         rt.consecutiveFailures = 0;
+        rt.reconnectAttempts = 0;
         rt.lastError = undefined;
         this.runtime[id] = rt;
         if (matched) {
@@ -173,6 +192,13 @@ export class WatcherManager {
         await this.persist();
       },
       handleFailure,
+      {
+        onConnect: () => {
+          const rt = this.runtime[id] ?? { id, consecutiveFailures: 0, reconnectAttempts: 0 };
+          rt.lastConnectAt = new Date().toISOString();
+          this.runtime[id] = rt;
+        },
+      },
     );
 
     this.stops.set(id, stop);

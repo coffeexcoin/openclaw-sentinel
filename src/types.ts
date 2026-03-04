@@ -54,9 +54,13 @@ export interface WatcherRuntimeState {
   lastError?: string;
   lastResponseAt?: string;
   consecutiveFailures: number;
+  reconnectAttempts: number;
   lastPayloadHash?: string;
   lastPayload?: unknown;
   lastEvaluated?: string;
+  lastConnectAt?: string;
+  lastDisconnectAt?: string;
+  lastDisconnectReason?: string;
 }
 
 export interface SentinelStateFile {
