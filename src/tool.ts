@@ -1,7 +1,9 @@
 import { jsonResult } from "openclaw/plugin-sdk";
 import type { AnyAgentTool } from "openclaw/plugin-sdk";
+import type { Static } from "@sinclair/typebox";
 import { z } from "zod";
 import { WatcherManager } from "./watcherManager.js";
+import { SentinelToolSchema } from "./toolSchema.js";
 
 const ParamsSchema = z
   .object({
@@ -21,15 +23,8 @@ export function registerSentinelControl(
     name: "sentinel_control",
     label: "sentinel_control",
     description: "Create/manage sentinel watchers",
-    parameters: {
-      action: {
-        type: "string",
-        enum: ["create", "enable", "disable", "remove", "status", "list"],
-      },
-      id: { type: "string" },
-      watcher: { type: "object" },
-    },
-    async execute(_toolCallId, params) {
+    parameters: SentinelToolSchema,
+    async execute(_toolCallId, params: Static<typeof SentinelToolSchema>) {
       const payload = ParamsSchema.parse((params ?? {}) as Record<string, unknown>);
       switch (payload.action) {
         case "create":
