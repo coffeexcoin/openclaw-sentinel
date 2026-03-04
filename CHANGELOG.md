@@ -1,5 +1,11 @@
 # @coffeexdev/openclaw-sentinel
 
+## 0.4.4
+
+### Patch Changes
+
+- 82887d4: Fix `sentinel_control` remove action tool-result normalization so it always emits valid text content blocks and avoids malformed `{type:"text"}` output when handlers return `undefined`.
+
 ## 0.4.3
 
 ### Patch Changes
