@@ -123,6 +123,7 @@ Sample emitted envelope:
   "source": { "plugin": "openclaw-sentinel", "route": "/hooks/sentinel" }
 }
 ```
+
 ## Why Sentinel
 
 Sentinel runs watcher lifecycles inside the gateway with fixed strategies and declarative conditions.

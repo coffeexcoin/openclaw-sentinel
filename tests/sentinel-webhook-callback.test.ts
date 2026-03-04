@@ -154,7 +154,7 @@ describe("sentinel webhook callback route", () => {
     const eventText = enqueueSystemEvent.mock.calls[0][0] as string;
     expect(eventText).toContain("SENTINEL_TRIGGER:");
     expect(eventText).toContain("SENTINEL_ENVELOPE_JSON:");
-    expect(eventText).toContain("\"type\": \"sentinel.callback\"");
+    expect(eventText).toContain('"type": "sentinel.callback"');
     expect(res.statusCode).toBe(200);
   });
 
