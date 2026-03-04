@@ -1,5 +1,12 @@
 # @coffeexdev/openclaw-sentinel
 
+## 0.4.5
+
+### Patch Changes
+
+- c1139bb: dd configurable sentinel notification payload delivery modes
+- 4a5ad5c: Improve hook-session relay behavior for Sentinel watchers by defaulting to per-watcher isolated hook sessions while supporting optional grouped sessions. This also improves relay-to-chat delivery with stronger dedupe controls to reduce duplicate notifications.
+
 ## 0.4.4
 
 ### Patch Changes
