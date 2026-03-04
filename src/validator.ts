@@ -3,6 +3,8 @@ import { Value } from "@sinclair/typebox/value";
 import { TemplateValueSchema } from "./templateValueSchema.js";
 import { DEFAULT_SENTINEL_WEBHOOK_PATH, WatcherDefinition } from "./types.js";
 
+const TemplateValueRefSchema = Type.Ref(TemplateValueSchema);
+
 const codeyKeyPattern = /(script|code|eval|handler|function|import|require)/i;
 const codeyValuePattern = /(=>|\bfunction\b|\bimport\s+|\brequire\s*\(|\beval\s*\()/i;
 
@@ -50,9 +52,9 @@ export const WatcherSchema = Type.Object(
       {
         webhookPath: Type.Optional(Type.String({ pattern: "^/" })),
         eventName: Type.String({ minLength: 1 }),
-        payloadTemplate: Type.Record(Type.String(), TemplateValueSchema),
+        payloadTemplate: Type.Record(Type.String(), TemplateValueRefSchema),
         intent: Type.Optional(Type.String({ minLength: 1 })),
-        contextTemplate: Type.Optional(Type.Record(Type.String(), TemplateValueSchema)),
+        contextTemplate: Type.Optional(Type.Record(Type.String(), TemplateValueRefSchema)),
         priority: Type.Optional(
           Type.Union([
             Type.Literal("low"),
@@ -90,7 +92,12 @@ export const WatcherSchema = Type.Object(
     ),
     metadata: Type.Optional(Type.Record(Type.String(), Type.String())),
   },
-  { additionalProperties: false },
+  {
+    additionalProperties: false,
+    $defs: {
+      templateValue: TemplateValueSchema,
+    },
+  },
 );
 
 function scanNoCodeLike(input: unknown, parentKey = ""): void {
@@ -118,8 +125,8 @@ function scanNoCodeLike(input: unknown, parentKey = ""): void {
 export function validateWatcherDefinition(input: unknown): WatcherDefinition {
   scanNoCodeLike(input);
 
-  if (!Value.Check(WatcherSchema, input)) {
-    const first = [...Value.Errors(WatcherSchema, input)][0];
+  if (!Value.Check(WatcherSchema, [TemplateValueSchema], input)) {
+    const first = [...Value.Errors(WatcherSchema, [TemplateValueSchema], input)][0];
     const where = first?.path || "(root)";
     const why = first?.message || "Invalid watcher definition";
     throw new Error(`Invalid watcher definition at ${where}: ${why}`);

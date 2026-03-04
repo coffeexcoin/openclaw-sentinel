@@ -1,5 +1,15 @@
 # @coffeexdev/openclaw-sentinel
 
+## 0.4.2
+
+### Patch Changes
+
+- Fix `sentinel_control` schema `$ref` ambiguity by storing the recursive template schema once (under `$defs`) and referencing it from both `payloadTemplate` and `contextTemplate`.
+- Ensure runtime TypeBox validation resolves recursive refs deterministically by supplying the shared template schema as explicit references in `Value.Check`/`Value.Errors`.
+- Expand `sentinel_control` action support with aliases: `add` → `create`, `delete` → `remove`, `get` → `status`.
+- Tighten tool parameter validation with action-specific payload shapes (required `watcher` for create/add, required `id` for id-targeted actions, no extra fields for `list`).
+- Add comprehensive command-path tests and error-path coverage, including Ajv-based schema compile tests that reproduce the prior ambiguity failure mode.
+
 ## 0.4.1
 
 ### Patch Changes

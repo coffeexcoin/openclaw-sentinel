@@ -1,6 +1,8 @@
 import { Type } from "@sinclair/typebox";
 import { TemplateValueSchema } from "./templateValueSchema.js";
 
+const TemplateValueRefSchema = Type.Ref(TemplateValueSchema);
+
 const ConditionSchema = Type.Object({
   path: Type.String({ description: "JSONPath expression to evaluate against the response" }),
   op: Type.Union(
@@ -31,7 +33,7 @@ const FireConfigSchema = Type.Object({
     description: "Path appended to localDispatchBase for webhook delivery",
   }),
   eventName: Type.String({ description: "Event name included in the dispatched payload" }),
-  payloadTemplate: Type.Record(Type.String(), TemplateValueSchema, {
+  payloadTemplate: Type.Record(Type.String(), TemplateValueRefSchema, {
     description:
       "Key-value template for the webhook payload. Supports ${...} interpolation from matched response data.",
   }),
@@ -39,7 +41,7 @@ const FireConfigSchema = Type.Object({
     Type.String({ description: "Generic callback intent for downstream agent routing" }),
   ),
   contextTemplate: Type.Optional(
-    Type.Record(Type.String(), TemplateValueSchema, {
+    Type.Record(Type.String(), TemplateValueRefSchema, {
       description:
         "Structured callback context template. Supports ${...} interpolation from matched response data.",
     }),
@@ -127,23 +129,46 @@ const WatcherSchema = Type.Object(
   { description: "Full watcher definition" },
 );
 
-export const SentinelToolSchema = Type.Object(
+const CreateActionSchema = Type.Object(
+  {
+    action: Type.Union([Type.Literal("create"), Type.Literal("add")], {
+      description: "Create action (alias: add)",
+    }),
+    watcher: WatcherSchema,
+  },
+  { additionalProperties: false },
+);
+
+const IdActionSchema = Type.Object(
   {
     action: Type.Union(
       [
-        Type.Literal("create"),
         Type.Literal("enable"),
         Type.Literal("disable"),
         Type.Literal("remove"),
+        Type.Literal("delete"),
         Type.Literal("status"),
-        Type.Literal("list"),
+        Type.Literal("get"),
       ],
-      { description: "The action to perform" },
+      { description: "ID-targeting action aliases: delete/remove and get/status" },
     ),
-    id: Type.Optional(
-      Type.String({ description: "Watcher ID (required for enable/disable/remove/status)" }),
-    ),
-    watcher: Type.Optional(WatcherSchema),
+    id: Type.String({ description: "Watcher ID for action target" }),
   },
   { additionalProperties: false },
+);
+
+const ListActionSchema = Type.Object(
+  {
+    action: Type.Literal("list", { description: "List all watchers" }),
+  },
+  { additionalProperties: false },
+);
+
+export const SentinelToolSchema = Type.Union(
+  [CreateActionSchema, IdActionSchema, ListActionSchema],
+  {
+    $defs: {
+      templateValue: TemplateValueSchema,
+    },
+  },
 );

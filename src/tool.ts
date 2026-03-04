@@ -5,13 +5,14 @@ import { Value } from "@sinclair/typebox/value";
 import { DeliveryTarget } from "./types.js";
 import { WatcherManager } from "./watcherManager.js";
 import { SentinelToolSchema } from "./toolSchema.js";
+import { TemplateValueSchema } from "./templateValueSchema.js";
 
 export type SentinelToolParams = Static<typeof SentinelToolSchema>;
 
 function validateParams(params: unknown): SentinelToolParams {
   const candidate = (params ?? {}) as Record<string, unknown>;
-  if (!Value.Check(SentinelToolSchema, candidate)) {
-    const first = [...Value.Errors(SentinelToolSchema, candidate)][0];
+  if (!Value.Check(SentinelToolSchema, [TemplateValueSchema], candidate)) {
+    const first = [...Value.Errors(SentinelToolSchema, [TemplateValueSchema], candidate)][0];
     const where = first?.path || "(root)";
     const why = first?.message || "Invalid parameters";
     throw new Error(`Invalid sentinel_control parameters at ${where}: ${why}`);
@@ -58,19 +59,22 @@ export function registerSentinelControl(
       const payload = validateParams(params);
       switch (payload.action) {
         case "create":
+        case "add":
           return jsonResult(
             await manager.create(payload.watcher, {
               deliveryTargets: inferDefaultDeliveryTargets(ctx),
             }),
           );
         case "enable":
-          return jsonResult(await manager.enable(payload.id ?? ""));
+          return jsonResult(await manager.enable(payload.id));
         case "disable":
-          return jsonResult(await manager.disable(payload.id ?? ""));
+          return jsonResult(await manager.disable(payload.id));
         case "remove":
-          return jsonResult(await manager.remove(payload.id ?? ""));
+        case "delete":
+          return jsonResult(await manager.remove(payload.id));
         case "status":
-          return jsonResult(manager.status(payload.id ?? ""));
+        case "get":
+          return jsonResult(manager.status(payload.id));
         case "list":
           return jsonResult(manager.list());
       }

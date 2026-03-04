@@ -132,7 +132,7 @@ It **does not** execute user-authored code from watcher definitions.
 ## Features
 
 - Tool registration: `sentinel_control`
-  - actions: `create`, `enable`, `disable`, `remove`, `status`, `list`
+  - actions: `create` (`add`), `enable`, `disable`, `remove` (`delete`), `status` (`get`), `list`
 - Strict schema validation (TypeBox, strict object checks) + code-like field/value rejection
 - Strategies:
   - `http-poll`
