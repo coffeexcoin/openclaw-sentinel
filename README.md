@@ -192,10 +192,10 @@ openclaw-sentinel audit
 ## Development
 
 ```bash
-npm i
-npm run lint
-npm run test
-npm run build
+corepack pnpm install
+corepack pnpm run lint
+corepack pnpm test
+corepack pnpm run build
 ```
 
 ## License

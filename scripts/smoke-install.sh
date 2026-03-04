@@ -16,16 +16,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
-TARBALL="$(npm pack --silent | tail -n 1)"
+PNPM_CMD="corepack pnpm"
+
+TARBALL="$($PNPM_CMD pack --pack-destination . --silent | tail -n 1)"
 
 echo "Installing packed plugin artifact: $TARBALL"
-npx openclaw --profile "$PROFILE" --log-level error plugins install "./$TARBALL"
+$PNPM_CMD exec openclaw --profile "$PROFILE" --log-level error plugins install "./$TARBALL"
 
 echo "Validating OpenClaw status in isolated profile"
-npx openclaw --profile "$PROFILE" --log-level error status >/dev/null
+$PNPM_CMD exec openclaw --profile "$PROFILE" --log-level error status >/dev/null
 
 echo "Validating plugin discovery"
-PLUGIN_LIST_OUTPUT="$(npx openclaw --profile "$PROFILE" --log-level error plugins list --verbose 2>&1)"
+PLUGIN_LIST_OUTPUT="$($PNPM_CMD exec openclaw --profile "$PROFILE" --log-level error plugins list --verbose 2>&1)"
 printf '%s\n' "$PLUGIN_LIST_OUTPUT"
 
 if ! grep -qi 'openclaw-sentinel' <<<"$PLUGIN_LIST_OUTPUT"; then
