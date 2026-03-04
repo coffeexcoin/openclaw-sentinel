@@ -1,5 +1,11 @@
 # @coffeexdev/openclaw-sentinel
 
+## 0.1.4
+
+### Patch Changes
+
+- 6385c98: Fix plugin entrypoint exports by providing a default plugin object with `register`, plus named `register`/`activate` exports for compatibility with OpenClaw loaders.
+
 ## 0.1.2
 
 ### Patch Changes
