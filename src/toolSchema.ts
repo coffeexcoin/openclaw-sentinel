@@ -1,15 +1,5 @@
 import { Type } from "@sinclair/typebox";
-
-const TemplateValueSchema: any = Type.Recursive((Self) =>
-  Type.Union([
-    Type.String(),
-    Type.Number(),
-    Type.Boolean(),
-    Type.Null(),
-    Type.Array(Self),
-    Type.Record(Type.String(), Self),
-  ]),
-);
+import { TemplateValueSchema } from "./templateValueSchema.js";
 
 const ConditionSchema = Type.Object({
   path: Type.String({ description: "JSONPath expression to evaluate against the response" }),
