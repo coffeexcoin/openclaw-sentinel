@@ -1,5 +1,18 @@
 # @coffeexdev/openclaw-sentinel
 
+## 0.2.0
+
+### Minor Changes
+
+- 2efffd7: Default webhook path to `/hooks/sentinel` when `fire.webhookPath` is omitted. Auto-register the default route on plugin init via `registerHttpRoute`.
+- 2420675: Wire `/hooks/sentinel` into the OpenClaw agent loop by enqueueing a system event and requesting heartbeat wake on webhook receipt.
+
+  Also adds:
+  - optional `hookSessionKey` config (default `agent:main:main`)
+  - webhook payload validation/size guards and error responses
+  - route callback wiring + failure handling tests
+  - README/USAGE docs for callback behavior and configuration
+
 ## 0.1.8
 
 ### Patch Changes
