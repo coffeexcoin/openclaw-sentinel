@@ -1,5 +1,11 @@
 # @coffeexdev/openclaw-sentinel
 
+## 0.1.2
+
+### Patch Changes
+
+- 8ef60dd: Add required `openclaw.plugin.json` manifest to published package and include it in npm `files` so OpenClaw plugin install succeeds.
+
 ## 0.1.1
 
 ### Patch Changes
