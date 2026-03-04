@@ -18,8 +18,10 @@ export interface Condition {
   value?: unknown;
 }
 
+export const DEFAULT_SENTINEL_WEBHOOK_PATH = "/hooks/sentinel";
+
 export interface FireConfig {
-  webhookPath: string;
+  webhookPath?: string;
   eventName: string;
   payloadTemplate: Record<string, string | number | boolean | null>;
 }
@@ -80,6 +82,7 @@ export interface SentinelConfig {
   allowedHosts: string[];
   localDispatchBase: string;
   dispatchAuthToken?: string;
+  hookSessionKey?: string;
   stateFilePath?: string;
   limits: SentinelLimits;
 }

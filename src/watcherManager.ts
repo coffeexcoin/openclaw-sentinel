@@ -8,6 +8,7 @@ import { httpLongPollStrategy } from "./strategies/httpLongPoll.js";
 import { sseStrategy } from "./strategies/sse.js";
 import { websocketStrategy } from "./strategies/websocket.js";
 import {
+  DEFAULT_SENTINEL_WEBHOOK_PATH,
   GatewayWebhookDispatcher,
   SentinelConfig,
   WatcherDefinition,
@@ -28,6 +29,15 @@ export class WatcherManager {
   private stops = new Map<string, () => void | Promise<void>>();
   private retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private statePath: string;
+  private webhookRegistration: {
+    path: string;
+    status: "pending" | "ok" | "error";
+    message?: string;
+    updatedAt?: string;
+  } = {
+    path: DEFAULT_SENTINEL_WEBHOOK_PATH,
+    status: "pending",
+  };
 
   constructor(
     private config: SentinelConfig,
@@ -81,6 +91,15 @@ export class WatcherManager {
   }
   status(id: string): WatcherRuntimeState | undefined {
     return this.runtime[id];
+  }
+
+  setWebhookRegistrationStatus(status: "ok" | "error", message?: string, path?: string): void {
+    this.webhookRegistration = {
+      path: path ?? this.webhookRegistration.path,
+      status,
+      message,
+      updatedAt: new Date().toISOString(),
+    };
   }
 
   async enable(id: string): Promise<void> {
@@ -183,7 +202,10 @@ export class WatcherManager {
             payload,
             timestamp: new Date().toISOString(),
           });
-          await this.dispatcher.dispatch(watcher.fire.webhookPath, body);
+          await this.dispatcher.dispatch(
+            watcher.fire.webhookPath ?? DEFAULT_SENTINEL_WEBHOOK_PATH,
+            body,
+          );
           if (watcher.fireOnce) {
             watcher.enabled = false;
             await this.stopWatcher(id);
@@ -230,6 +252,7 @@ export class WatcherManager {
       allowedHosts: this.config.allowedHosts,
       limits: this.config.limits,
       statePath: this.statePath,
+      webhookRegistration: this.webhookRegistration,
     };
   }
 

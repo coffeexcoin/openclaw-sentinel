@@ -1,40 +1,50 @@
-import { z } from "zod";
+import { jsonResult } from "openclaw/plugin-sdk";
+import type { AnyAgentTool } from "openclaw/plugin-sdk";
+import type { Static } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 import { WatcherManager } from "./watcherManager.js";
+import { SentinelToolSchema } from "./toolSchema.js";
 
-const inputSchema = z
-  .object({
-    action: z.enum(["create", "enable", "disable", "remove", "status", "list"]),
-    id: z.string().optional(),
-    watcher: z.unknown().optional(),
-  })
-  .strict();
+export type SentinelToolParams = Static<typeof SentinelToolSchema>;
+
+function validateParams(params: unknown): SentinelToolParams {
+  const candidate = (params ?? {}) as Record<string, unknown>;
+  if (!Value.Check(SentinelToolSchema, candidate)) {
+    const first = [...Value.Errors(SentinelToolSchema, candidate)][0];
+    const where = first?.path || "(root)";
+    const why = first?.message || "Invalid parameters";
+    throw new Error(`Invalid sentinel_control parameters at ${where}: ${why}`);
+  }
+  return candidate as SentinelToolParams;
+}
+
+type RegisterToolFn = (tool: AnyAgentTool) => void;
 
 export function registerSentinelControl(
-  registerTool: (name: string, handler: (input: unknown) => Promise<unknown>) => void,
+  registerTool: RegisterToolFn,
   manager: WatcherManager,
 ): void {
-  registerTool("sentinel_control", async (input) => {
-    const parsed = inputSchema.parse(input);
-    switch (parsed.action) {
-      case "create":
-        return manager.create(parsed.watcher);
-      case "enable":
-        if (!parsed.id) throw new Error("id required");
-        await manager.enable(parsed.id);
-        return { ok: true };
-      case "disable":
-        if (!parsed.id) throw new Error("id required");
-        await manager.disable(parsed.id);
-        return { ok: true };
-      case "remove":
-        if (!parsed.id) throw new Error("id required");
-        await manager.remove(parsed.id);
-        return { ok: true };
-      case "status":
-        if (!parsed.id) throw new Error("id required");
-        return manager.status(parsed.id);
-      case "list":
-        return manager.list();
-    }
+  registerTool({
+    name: "sentinel_control",
+    label: "sentinel_control",
+    description: "Create/manage sentinel watchers",
+    parameters: SentinelToolSchema,
+    async execute(_toolCallId, params: SentinelToolParams) {
+      const payload = validateParams(params);
+      switch (payload.action) {
+        case "create":
+          return jsonResult(await manager.create(payload.watcher));
+        case "enable":
+          return jsonResult(await manager.enable(payload.id ?? ""));
+        case "disable":
+          return jsonResult(await manager.disable(payload.id ?? ""));
+        case "remove":
+          return jsonResult(await manager.remove(payload.id ?? ""));
+        case "status":
+          return jsonResult(manager.status(payload.id ?? ""));
+        case "list":
+          return jsonResult(manager.list());
+      }
+    },
   });
 }

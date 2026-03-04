@@ -1,0 +1,26 @@
+import { describe, expect, it } from "vitest";
+import { sentinelConfigSchema } from "../src/configSchema.js";
+
+describe("sentinel config schema", () => {
+  it("applies defaults when minimal config is provided", () => {
+    const parsed = sentinelConfigSchema.safeParse?.({});
+    expect(parsed?.success).toBe(true);
+    expect(parsed?.data).toMatchObject({
+      allowedHosts: [],
+      localDispatchBase: "http://127.0.0.1:18789",
+      limits: {
+        maxWatchersTotal: 200,
+        maxWatchersPerSkill: 20,
+        maxConditionsPerWatcher: 25,
+        maxIntervalMsFloor: 1000,
+      },
+    });
+  });
+
+  it("rejects invalid localDispatchBase URL", () => {
+    const parsed = sentinelConfigSchema.safeParse?.({ localDispatchBase: "not-a-url" });
+    expect(parsed?.success).toBe(false);
+    const issue = parsed && !parsed.success ? parsed.error?.issues?.[0] : undefined;
+    expect(issue?.path).toEqual(["localDispatchBase"]);
+  });
+});

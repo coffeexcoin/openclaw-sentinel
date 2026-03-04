@@ -43,9 +43,13 @@
     "fire": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["webhookPath", "eventName", "payloadTemplate"],
+      "required": ["eventName", "payloadTemplate"],
       "properties": {
-        "webhookPath": { "type": "string", "pattern": "^/" },
+        "webhookPath": {
+          "type": "string",
+          "pattern": "^/",
+          "default": "/hooks/sentinel"
+        },
         "eventName": { "type": "string", "minLength": 1 },
         "payloadTemplate": {
           "type": "object",

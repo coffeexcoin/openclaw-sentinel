@@ -1,6 +1,6 @@
 {
   "name": "@coffeexdev/openclaw-sentinel",
-  "version": "0.1.2",
+  "version": "0.2.1",
   "description": "Secure declarative gateway-native watcher plugin for OpenClaw",
   "keywords": [
     "openclaw",
@@ -32,36 +32,48 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
+    "test:smoke-install": "./scripts/smoke-install.sh",
     "lint": "tsc --noEmit",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "changeset publish",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "prepare": "husky"
   },
   "dependencies": {
+    "@sinclair/typebox": "^0.34.48",
     "re2-wasm": "^1.0.2",
-    "ws": "^8.18.3",
-    "zod": "^3.24.1"
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.7",
     "@types/node": "^24.0.0",
     "@types/ws": "^8.5.13",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.3.2",
+    "openclaw": "latest",
     "oxfmt": "^0.36.0",
     "typescript": "^5.8.2",
     "vitest": "^3.0.8"
   },
+  "peerDependencies": {
+    "openclaw": ">=2026.3.2"
+  },
   "optionalDependencies": {
     "re2": "^1.23.3"
   },
+  "lint-staged": {
+    "!(*package-lock).json": "oxfmt --write",
+    "*.{ts,js,jsx,tsx,mjs,cjs,yml,yaml,md,css,html}": "oxfmt --write"
+  },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "openclaw": {
     "extensions": [
-      "./dist/index.js"
+      "dist/index.js"
     ]
   }
 }

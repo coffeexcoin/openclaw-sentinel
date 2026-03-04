@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { validateWatcherDefinition } from "../src/validator.js";
+import { DEFAULT_SENTINEL_WEBHOOK_PATH } from "../src/types.js";
 
 const base = {
   id: "w1",
@@ -20,6 +21,20 @@ const base = {
 describe("validator", () => {
   it("accepts valid watcher", () => {
     expect(validateWatcherDefinition(base).id).toBe("w1");
+  });
+  it("applies default webhook path when omitted", () => {
+    const watcher = validateWatcherDefinition({
+      ...base,
+      fire: {
+        ...base.fire,
+        webhookPath: undefined,
+      },
+    });
+    expect(watcher.fire.webhookPath).toBe(DEFAULT_SENTINEL_WEBHOOK_PATH);
+  });
+  it("preserves explicit webhook path override", () => {
+    const watcher = validateWatcherDefinition(base);
+    expect(watcher.fire.webhookPath).toBe("/internal/sentinel");
   });
   it("rejects unknown fields", () => {
     expect(() => validateWatcherDefinition({ ...base, rogue: true })).toThrow();
