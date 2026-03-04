@@ -129,11 +129,33 @@ const WatcherSchema = Type.Object(
   { description: "Full watcher definition" },
 );
 
+const CreateActionNameSchema = Type.Union([Type.Literal("create"), Type.Literal("add")], {
+  description: "Create action (alias: add)",
+});
+
+const IdActionNameSchema = Type.Union(
+  [
+    Type.Literal("enable"),
+    Type.Literal("disable"),
+    Type.Literal("remove"),
+    Type.Literal("delete"),
+    Type.Literal("status"),
+    Type.Literal("get"),
+  ],
+  { description: "ID-targeting action aliases: delete/remove and get/status" },
+);
+
+const ListActionNameSchema = Type.Literal("list", { description: "List all watchers" });
+
+const AnyActionNameSchema = Type.Union([
+  CreateActionNameSchema,
+  IdActionNameSchema,
+  ListActionNameSchema,
+]);
+
 const CreateActionSchema = Type.Object(
   {
-    action: Type.Union([Type.Literal("create"), Type.Literal("add")], {
-      description: "Create action (alias: add)",
-    }),
+    action: CreateActionNameSchema,
     watcher: WatcherSchema,
   },
   { additionalProperties: false },
@@ -141,17 +163,7 @@ const CreateActionSchema = Type.Object(
 
 const IdActionSchema = Type.Object(
   {
-    action: Type.Union(
-      [
-        Type.Literal("enable"),
-        Type.Literal("disable"),
-        Type.Literal("remove"),
-        Type.Literal("delete"),
-        Type.Literal("status"),
-        Type.Literal("get"),
-      ],
-      { description: "ID-targeting action aliases: delete/remove and get/status" },
-    ),
+    action: IdActionNameSchema,
     id: Type.String({ description: "Watcher ID for action target" }),
   },
   { additionalProperties: false },
@@ -159,14 +171,28 @@ const IdActionSchema = Type.Object(
 
 const ListActionSchema = Type.Object(
   {
-    action: Type.Literal("list", { description: "List all watchers" }),
+    action: ListActionNameSchema,
   },
   { additionalProperties: false },
 );
 
-export const SentinelToolSchema = Type.Union(
+export const SentinelToolValidationSchema = Type.Union(
   [CreateActionSchema, IdActionSchema, ListActionSchema],
   {
+    $defs: {
+      templateValue: TemplateValueSchema,
+    },
+  },
+);
+
+export const SentinelToolSchema = Type.Object(
+  {
+    action: AnyActionNameSchema,
+    watcher: Type.Optional(WatcherSchema),
+    id: Type.Optional(Type.String({ description: "Watcher ID for action target" })),
+  },
+  {
+    additionalProperties: false,
     $defs: {
       templateValue: TemplateValueSchema,
     },
