@@ -15,12 +15,19 @@ In config, you **must** set `allowedHosts` — no hosts are allowed by default. 
 {
   "sentinel": {
     "allowedHosts": ["api.github.com", "api.coingecko.com", "status.example.com"],
-    "localDispatchBase": "http://127.0.0.1:18789"
+    "localDispatchBase": "http://127.0.0.1:18789",
+    "hookSessionKey": "agent:main:main"
   }
 }
 ```
 
 ---
+
+`/hooks/sentinel` payload notes:
+
+- Send a JSON object.
+- Use `text` (or `message`) to control the system event text delivered to the loop.
+- If omitted, Sentinel generates a summary from fields like `eventName` and `watcherId`.
 
 ## 2) Basic watcher creation (agent tool)
 
@@ -153,6 +160,7 @@ Typical skill flow:
 1. Skill creates watcher when user asks to monitor an external event.
 2. Sentinel watches with zero token burn while idle.
 3. On condition match, Sentinel dispatches webhook payload.
-4. Agent wakes, acts, and optionally disables/removes watcher.
+4. If routed to `/hooks/sentinel`, OpenClaw enqueues a system event and triggers heartbeat wake.
+5. Agent wakes, acts, and optionally disables/removes watcher.
 
 This pattern keeps the model active only at decision points.

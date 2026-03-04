@@ -24,6 +24,7 @@ It **does not** execute user-authored code from watcher definitions.
 - Fire route: local internal webhook dispatch path (no outbound fire URL)
   - defaults to `/hooks/sentinel` when `fire.webhookPath` is omitted
   - plugin auto-registers `/hooks/sentinel` on startup (idempotent)
+  - `/hooks/sentinel` now enqueues a system event + heartbeat wake into the OpenClaw LLM loop
 - Persistence: `~/.openclaw/sentinel-state.json`
 - Resource limits and per-skill limits
 - `allowedHosts` endpoint enforcement
@@ -57,6 +58,7 @@ import { createSentinelPlugin } from "@coffeexdev/openclaw-sentinel";
 const sentinel = createSentinelPlugin({
   allowedHosts: ["api.github.com", "api.coingecko.com"],
   localDispatchBase: "http://127.0.0.1:4389",
+  hookSessionKey: "agent:main:main", // optional; where /hooks/sentinel wakes the loop
 });
 
 await sentinel.init();
@@ -103,6 +105,16 @@ sentinel.register({
 
 `fire.webhookPath` is optional. If omitted, Sentinel defaults to `/hooks/sentinel`.
 Keep `webhookPath` when you need a watcher-specific override.
+
+### `/hooks/sentinel` callback behavior
+
+`POST /hooks/sentinel` (gateway-auth protected) now routes into the LLM loop via
+`runtime.system.enqueueSystemEvent(...)` + `runtime.system.requestHeartbeatNow(...)`.
+
+- The route treats payloads as untrusted JSON objects.
+- `text` (or `message`) is used as the event text when provided.
+- Otherwise, a safe summary is generated (`eventName`/`watcherId` when present).
+- Session target defaults to `agent:main:main` and can be changed with `hookSessionKey`.
 
 ## CLI
 
