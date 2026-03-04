@@ -65,8 +65,8 @@
     "re2": "^1.23.3"
   },
   "lint-staged": {
-    "*.{ts,js,jsx,tsx,mjs,cjs,yml,yaml,md,css,html}": "oxfmt --write",
-    "package.json": "oxfmt --write"
+    "!(*package-lock).json": "oxfmt --write",
+    "*.{ts,js,jsx,tsx,mjs,cjs,yml,yaml,md,css,html}": "oxfmt --write"
   },
   "engines": {
     "node": ">=22"
