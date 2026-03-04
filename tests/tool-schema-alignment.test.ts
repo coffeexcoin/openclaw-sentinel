@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Value } from "@sinclair/typebox/value";
 import { SentinelToolSchema } from "../src/toolSchema.js";
+import { TemplateValueSchema } from "../src/templateValueSchema.js";
 
 const validCreate = {
   action: "create",
@@ -24,16 +25,16 @@ const validCreate = {
 
 describe("tool schema validation", () => {
   it("accepts valid create payload", () => {
-    expect(Value.Check(SentinelToolSchema, validCreate)).toBe(true);
+    expect(Value.Check(SentinelToolSchema, [TemplateValueSchema], validCreate)).toBe(true);
   });
 
   it("rejects invalid action", () => {
     const bad = { action: "noop" };
-    expect(Value.Check(SentinelToolSchema, bad)).toBe(false);
+    expect(Value.Check(SentinelToolSchema, [TemplateValueSchema], bad)).toBe(false);
   });
 
   it("rejects unknown top-level fields", () => {
     const bad = { ...validCreate, unexpected: true } as any;
-    expect(Value.Check(SentinelToolSchema, bad)).toBe(false);
+    expect(Value.Check(SentinelToolSchema, [TemplateValueSchema], bad)).toBe(false);
   });
 });
