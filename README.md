@@ -58,6 +58,14 @@ openclaw gateway restart
     "fire": {
       "webhookPath": "/hooks/sentinel",
       "eventName": "eth_target_hit",
+      "intent": "price_threshold_review",
+      "contextTemplate": {
+        "asset": "ETH",
+        "priceUsd": "${payload.ethereum.usd}",
+        "workflow": "alerts"
+      },
+      "priority": "high",
+      "deadlineTemplate": "${timestamp}",
       "payloadTemplate": {
         "event": "${event.name}",
         "price": "${payload.ethereum.usd}",
@@ -87,25 +95,34 @@ Use `sentinel_control`:
 ## What happens when a watcher fires?
 
 1. Sentinel evaluates conditions.
-2. On match, it dispatches to `localDispatchBase + webhookPath`.
-3. It also sends a notification message to each configured `deliveryTargets` destination (defaults to the current chat context when watcher is created from a channel session).
-4. For `/hooks/sentinel`, the plugin route enqueues a system event (instruction prefix + structured JSON envelope) and requests heartbeat wake.
-5. OpenClaw wakes and processes that event in the configured session (`hookSessionKey`, default `agent:main:main`).
+2. On match, it dispatches a generic callback envelope (`type: "sentinel.callback"`) to `localDispatchBase + webhookPath`.
+3. The envelope includes stable keys (`intent`, `context`, `watcher`, `trigger`, bounded `payload`, `deliveryTargets`, `source`) so downstream agent behavior is workflow-agnostic.
+4. It also sends a notification message to each configured `deliveryTargets` destination (defaults to the current chat context when watcher is created from a channel session).
+5. For `/hooks/sentinel`, the plugin route enqueues an instruction-prefixed system event plus structured JSON envelope and requests heartbeat wake.
+6. OpenClaw wakes and processes that event in the configured session (`hookSessionKey`, default `agent:main:main`).
 
 The `/hooks/sentinel` route is auto-registered on plugin startup (idempotent).
 
-### `/hooks/sentinel` wake event format
+Sample emitted envelope:
 
-Sentinel enqueues deterministic system-event text in this shape:
-
-```text
-SENTINEL_TRIGGER: This system event came from /hooks/sentinel. Evaluate action policy, decide whether to notify configured deliveryTargets, and execute safe follow-up actions.
-SENTINEL_ENVELOPE_JSON:
-{ ...stable JSON envelope... }
+```json
+{
+  "type": "sentinel.callback",
+  "version": "1",
+  "intent": "price_threshold_review",
+  "actionable": true,
+  "watcher": { "id": "eth-price-watch", "skillId": "skills.alerts", "eventName": "eth_target_hit" },
+  "trigger": {
+    "matchedAt": "2026-03-04T15:00:00.000Z",
+    "dedupeKey": "<sha256>",
+    "priority": "high"
+  },
+  "context": { "asset": "ETH", "priceUsd": 5001, "workflow": "alerts" },
+  "payload": { "ethereum": { "usd": 5001 } },
+  "deliveryTargets": [{ "channel": "telegram", "to": "5613673222" }],
+  "source": { "plugin": "openclaw-sentinel", "route": "/hooks/sentinel" }
+}
 ```
-
-Envelope keys: `watcherId`, `eventName`, `skillId` (if present), `matchedAt`, `payload` (bounded with truncation marker when clipped), `dedupeKey`, `correlationId`, `deliveryTargets` (if present), `source` (`route`, `plugin`).
-
 ## Why Sentinel
 
 Sentinel runs watcher lifecycles inside the gateway with fixed strategies and declarative conditions.

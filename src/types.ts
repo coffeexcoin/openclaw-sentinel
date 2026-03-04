@@ -20,10 +20,17 @@ export interface Condition {
 
 export const DEFAULT_SENTINEL_WEBHOOK_PATH = "/hooks/sentinel";
 
+export type PriorityLevel = "low" | "normal" | "high" | "critical";
+
 export interface FireConfig {
   webhookPath?: string;
   eventName: string;
-  payloadTemplate: Record<string, string | number | boolean | null>;
+  payloadTemplate: Record<string, import("./template.js").TemplateValue>;
+  intent?: string;
+  contextTemplate?: Record<string, import("./template.js").TemplateValue>;
+  priority?: PriorityLevel;
+  deadlineTemplate?: string;
+  dedupeKeyTemplate?: string;
 }
 
 export interface RetryPolicy {

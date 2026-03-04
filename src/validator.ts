@@ -5,6 +5,17 @@ import { DEFAULT_SENTINEL_WEBHOOK_PATH, WatcherDefinition } from "./types.js";
 const codeyKeyPattern = /(script|code|eval|handler|function|import|require)/i;
 const codeyValuePattern = /(=>|\bfunction\b|\bimport\s+|\brequire\s*\(|\beval\s*\()/i;
 
+const TemplateValueSchema: any = Type.Recursive((Self) =>
+  Type.Union([
+    Type.String(),
+    Type.Number(),
+    Type.Boolean(),
+    Type.Null(),
+    Type.Array(Self),
+    Type.Record(Type.String(), Self),
+  ]),
+);
+
 const ConditionSchema = Type.Object(
   {
     path: Type.String({ minLength: 1 }),
@@ -49,10 +60,19 @@ const WatcherSchema = Type.Object(
       {
         webhookPath: Type.Optional(Type.String({ pattern: "^/" })),
         eventName: Type.String({ minLength: 1 }),
-        payloadTemplate: Type.Record(
-          Type.String(),
-          Type.Union([Type.String(), Type.Number(), Type.Boolean(), Type.Null()]),
+        payloadTemplate: Type.Record(Type.String(), TemplateValueSchema),
+        intent: Type.Optional(Type.String({ minLength: 1 })),
+        contextTemplate: Type.Optional(Type.Record(Type.String(), TemplateValueSchema)),
+        priority: Type.Optional(
+          Type.Union([
+            Type.Literal("low"),
+            Type.Literal("normal"),
+            Type.Literal("high"),
+            Type.Literal("critical"),
+          ]),
         ),
+        deadlineTemplate: Type.Optional(Type.String({ minLength: 1 })),
+        dedupeKeyTemplate: Type.Optional(Type.String({ minLength: 1 })),
       },
       { additionalProperties: false },
     ),
