@@ -204,10 +204,10 @@ openclaw-sentinel audit
 ## Development
 
 ```bash
-npm i
-npm run lint
-npm run test
-npm run build
+pnpm install
+pnpm run lint
+pnpm test
+pnpm run build
 ```
 
 ## License
