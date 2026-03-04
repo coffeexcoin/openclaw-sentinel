@@ -4,15 +4,17 @@ import type { Static } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { DeliveryTarget } from "./types.js";
 import { WatcherManager } from "./watcherManager.js";
-import { SentinelToolSchema } from "./toolSchema.js";
+import { SentinelToolSchema, SentinelToolValidationSchema } from "./toolSchema.js";
 import { TemplateValueSchema } from "./templateValueSchema.js";
 
-export type SentinelToolParams = Static<typeof SentinelToolSchema>;
+export type SentinelToolParams = Static<typeof SentinelToolValidationSchema>;
 
 function validateParams(params: unknown): SentinelToolParams {
   const candidate = (params ?? {}) as Record<string, unknown>;
-  if (!Value.Check(SentinelToolSchema, [TemplateValueSchema], candidate)) {
-    const first = [...Value.Errors(SentinelToolSchema, [TemplateValueSchema], candidate)][0];
+  if (!Value.Check(SentinelToolValidationSchema, [TemplateValueSchema], candidate)) {
+    const first = [
+      ...Value.Errors(SentinelToolValidationSchema, [TemplateValueSchema], candidate),
+    ][0];
     const where = first?.path || "(root)";
     const why = first?.message || "Invalid parameters";
     throw new Error(`Invalid sentinel_control parameters at ${where}: ${why}`);
