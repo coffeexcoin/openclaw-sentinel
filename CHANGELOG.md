@@ -1,5 +1,27 @@
 # @coffeexdev/openclaw-sentinel
 
+## 0.3.0
+
+### Minor Changes
+
+- 604077b: Add watcher delivery target fan-out support with context-based defaults.
+  - Add optional `deliveryTargets` on watcher definitions (`[{ channel, to, accountId? }]`)
+  - Infer default delivery target from current tool/session channel context on `sentinel_control` create when omitted
+  - Deliver fire notifications to all configured targets via OpenClaw channel runtime interfaces
+  - Record per-target delivery diagnostics (including partial failures) in watcher runtime state
+  - Add tests for default inference, explicit multi-target override, and fan-out partial-failure behavior
+  - Update README and USAGE docs with new field and examples
+
+- 4141ed4: Improve `/hooks/sentinel` LLM wake context with a deterministic instruction prefix and structured JSON envelope.
+  - Preserve existing behavior (enqueue + heartbeat wake) while upgrading event text format.
+  - Add stable envelope keys: `watcherId`, `eventName`, `skillId` (if present), `matchedAt`, bounded `payload`, `dedupeKey`, `correlationId`, optional `deliveryTargets`, and `source` metadata.
+  - Add payload bounding/truncation marker to reduce oversized prompt risk.
+  - Keep backward compatibility with legacy/minimal webhook payload shapes.
+  - Add webhook callback tests for structured event text, truncation behavior, and compatibility.
+  - Document the structured hook event format and agent interpretation guidance in README and USAGE.
+
+- 9508a15: Harden websocket reconnect with error/close dedupe, backoff reset after sustained healthy connection, and reconnect telemetry fields
+
 ## 0.2.1
 
 ### Patch Changes
