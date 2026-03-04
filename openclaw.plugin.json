@@ -20,6 +20,11 @@
         "type": "string",
         "description": "Bearer token for authenticating webhook dispatch requests"
       },
+      "hookSessionKey": {
+        "type": "string",
+        "description": "Session key used when /hooks/sentinel enqueues system events into the LLM loop",
+        "default": "agent:main:main"
+      },
       "stateFilePath": {
         "type": "string",
         "description": "Custom path for the sentinel state persistence file"
@@ -67,6 +72,11 @@
       "help": "Bearer token for webhook dispatch authentication",
       "sensitive": true,
       "placeholder": "sk-..."
+    },
+    "hookSessionKey": {
+      "label": "Sentinel Hook Session Key",
+      "help": "Session key that receives /hooks/sentinel callback events (default: agent:main:main)",
+      "advanced": true
     },
     "stateFilePath": {
       "label": "State File Path",

@@ -1,3 +1,4 @@
+import type { IncomingMessage } from "node:http";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { sentinelConfigSchema } from "./configSchema.js";
 import { registerSentinelControl } from "./tool.js";
@@ -5,6 +6,9 @@ import { DEFAULT_SENTINEL_WEBHOOK_PATH, SentinelConfig } from "./types.js";
 import { WatcherManager } from "./watcherManager.js";
 
 const registeredWebhookPathsByRegistrar = new WeakMap<object, Set<string>>();
+const DEFAULT_HOOK_SESSION_KEY = "agent:main:main";
+const MAX_SENTINEL_WEBHOOK_BODY_BYTES = 64 * 1024;
+const MAX_SENTINEL_WEBHOOK_TEXT_CHARS = 2000;
 
 function normalizePath(path: string): string {
   const trimmed = path.trim();
@@ -13,11 +17,76 @@ function normalizePath(path: string): string {
   return withSlash.length > 1 && withSlash.endsWith("/") ? withSlash.slice(0, -1) : withSlash;
 }
 
+function trimText(value: string, max: number): string {
+  return value.length <= max ? value : `${value.slice(0, max)}…`;
+}
+
+function asString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function buildSentinelSystemEvent(payload: Record<string, unknown>): string {
+  const text = asString(payload.text) ?? asString(payload.message);
+  if (text) return trimText(text, MAX_SENTINEL_WEBHOOK_TEXT_CHARS);
+
+  const watcherId = asString(payload.watcherId);
+  const eventName =
+    asString(payload.eventName) ??
+    (isRecord(payload.event) ? asString(payload.event.name) : undefined);
+
+  const labels: string[] = ["Sentinel webhook received"];
+  if (eventName) labels.push(`event=${eventName}`);
+  if (watcherId) labels.push(`watcher=${watcherId}`);
+  return trimText(labels.join(" "), MAX_SENTINEL_WEBHOOK_TEXT_CHARS);
+}
+
+async function readSentinelWebhookPayload(req: IncomingMessage): Promise<Record<string, unknown>> {
+  const preParsed = (req as { body?: unknown }).body;
+  if (isRecord(preParsed)) return preParsed;
+
+  const chunks: Buffer[] = [];
+  let total = 0;
+
+  for await (const chunk of req) {
+    const next = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+    total += next.length;
+    if (total > MAX_SENTINEL_WEBHOOK_BODY_BYTES) {
+      throw new Error("Request body too large");
+    }
+    chunks.push(next);
+  }
+
+  if (chunks.length === 0) return {};
+
+  const raw = Buffer.concat(chunks).toString("utf8").trim();
+  if (!raw) return {};
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("Invalid JSON payload");
+  }
+
+  if (!isRecord(parsed)) {
+    throw new Error("Payload must be a JSON object");
+  }
+
+  return parsed;
+}
+
 export function createSentinelPlugin(overrides?: Partial<SentinelConfig>) {
   const config: SentinelConfig = {
     allowedHosts: [],
     localDispatchBase: "http://127.0.0.1:18789",
     dispatchAuthToken: process.env.SENTINEL_DISPATCH_TOKEN,
+    hookSessionKey: DEFAULT_HOOK_SESSION_KEY,
     limits: {
       maxWatchersTotal: 200,
       maxWatchersPerSkill: 20,
@@ -71,14 +140,41 @@ export function createSentinelPlugin(overrides?: Partial<SentinelConfig>) {
           auth: "gateway",
           match: "exact",
           replaceExisting: true,
-          handler(req, res) {
+          async handler(req, res) {
             if (req.method !== "POST") {
               res.writeHead(405, { "content-type": "application/json" });
               res.end(JSON.stringify({ error: "Method not allowed" }));
               return;
             }
-            res.writeHead(200, { "content-type": "application/json" });
-            res.end(JSON.stringify({ ok: true, route: path }));
+
+            try {
+              const payload = await readSentinelWebhookPayload(req);
+              const sessionKey = config.hookSessionKey ?? DEFAULT_HOOK_SESSION_KEY;
+              const text = buildSentinelSystemEvent(payload);
+              const enqueued = api.runtime.system.enqueueSystemEvent(text, { sessionKey });
+              api.runtime.system.requestHeartbeatNow({
+                reason: "hook:sentinel",
+                sessionKey,
+              });
+
+              res.writeHead(200, { "content-type": "application/json" });
+              res.end(
+                JSON.stringify({
+                  ok: true,
+                  route: path,
+                  sessionKey,
+                  enqueued,
+                }),
+              );
+            } catch (err) {
+              const message = String((err as Error)?.message ?? err);
+              const badRequest =
+                message.includes("Invalid JSON payload") ||
+                message.includes("Payload must be a JSON object");
+              const status = message.includes("too large") ? 413 : badRequest ? 400 : 500;
+              res.writeHead(status, { "content-type": "application/json" });
+              res.end(JSON.stringify({ error: message }));
+            }
           },
         });
         registeredPaths.add(path);

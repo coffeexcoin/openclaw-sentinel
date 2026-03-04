@@ -17,6 +17,7 @@ const ConfigSchema = Type.Object(
     allowedHosts: Type.Array(Type.String()),
     localDispatchBase: Type.String({ minLength: 1 }),
     dispatchAuthToken: Type.Optional(Type.String()),
+    hookSessionKey: Type.Optional(Type.String({ minLength: 1 })),
     stateFilePath: Type.Optional(Type.String()),
     limits: Type.Optional(LimitsSchema),
   },
@@ -34,6 +35,8 @@ function withDefaults(value: Record<string, unknown>): Record<string, unknown> {
         : "http://127.0.0.1:18789",
     dispatchAuthToken:
       typeof value.dispatchAuthToken === "string" ? value.dispatchAuthToken : undefined,
+    hookSessionKey:
+      typeof value.hookSessionKey === "string" ? value.hookSessionKey : "agent:main:main",
     stateFilePath: typeof value.stateFilePath === "string" ? value.stateFilePath : undefined,
     limits: {
       maxWatchersTotal:
@@ -116,6 +119,12 @@ export const sentinelConfigSchema: OpenClawPluginConfigSchema = {
         type: "string",
         description: "Bearer token for authenticating webhook dispatch requests",
       },
+      hookSessionKey: {
+        type: "string",
+        description:
+          "Session key used when /hooks/sentinel enqueues system events into the LLM loop",
+        default: "agent:main:main",
+      },
       stateFilePath: {
         type: "string",
         description: "Custom path for the sentinel state persistence file",
@@ -163,6 +172,11 @@ export const sentinelConfigSchema: OpenClawPluginConfigSchema = {
       help: "Bearer token for webhook dispatch authentication (or use SENTINEL_DISPATCH_TOKEN env var)",
       sensitive: true,
       placeholder: "sk-...",
+    },
+    hookSessionKey: {
+      label: "Sentinel Hook Session Key",
+      help: "Session key that receives /hooks/sentinel callback events (default: agent:main:main)",
+      advanced: true,
     },
     stateFilePath: {
       label: "State File Path",
