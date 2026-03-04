@@ -1,20 +1,10 @@
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
+import { TemplateValueSchema } from "./templateValueSchema.js";
 import { DEFAULT_SENTINEL_WEBHOOK_PATH, WatcherDefinition } from "./types.js";
 
 const codeyKeyPattern = /(script|code|eval|handler|function|import|require)/i;
 const codeyValuePattern = /(=>|\bfunction\b|\bimport\s+|\brequire\s*\(|\beval\s*\()/i;
-
-const TemplateValueSchema: any = Type.Recursive((Self) =>
-  Type.Union([
-    Type.String(),
-    Type.Number(),
-    Type.Boolean(),
-    Type.Null(),
-    Type.Array(Self),
-    Type.Record(Type.String(), Self),
-  ]),
-);
 
 const ConditionSchema = Type.Object(
   {
@@ -37,7 +27,7 @@ const ConditionSchema = Type.Object(
   { additionalProperties: false },
 );
 
-const WatcherSchema = Type.Object(
+export const WatcherSchema = Type.Object(
   {
     id: Type.String({ minLength: 1 }),
     skillId: Type.String({ minLength: 1 }),
