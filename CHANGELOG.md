@@ -1,5 +1,12 @@
 # @coffeexdev/openclaw-sentinel
 
+## 0.1.8
+
+### Patch Changes
+
+- 674c314: Remove remaining zod usage from plugin config validation by migrating `configSchema` to TypeBox runtime checks.
+  This eliminates runtime `Cannot find module 'zod'` loader failures.
+
 ## 0.1.7
 
 ### Patch Changes
