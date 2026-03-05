@@ -6,28 +6,49 @@
     "properties": {
       "allowedHosts": {
         "type": "array",
-        "items": { "type": "string" },
+        "items": {
+          "type": "string"
+        },
         "description": "Hostnames the watchers are permitted to connect to. Must be explicitly configured — no hosts are allowed by default.",
         "default": []
       },
       "localDispatchBase": {
         "type": "string",
-        "format": "uri",
         "description": "Base URL for internal webhook dispatch",
         "default": "http://127.0.0.1:18789"
       },
       "dispatchAuthToken": {
         "type": "string",
-        "description": "Bearer token for authenticating webhook dispatch requests"
+        "description": "Optional bearer token override for webhook dispatch auth. Sentinel auto-detects gateway auth token when available."
       },
       "hookSessionKey": {
         "type": "string",
-        "description": "Session key used when /hooks/sentinel enqueues system events into the LLM loop",
-        "default": "agent:main:main"
+        "description": "Deprecated alias for hookSessionPrefix. Sentinel always appends watcher/group segments to prevent a shared global callback session."
+      },
+      "hookSessionPrefix": {
+        "type": "string",
+        "description": "Base session key prefix used for isolated /hooks/sentinel callback sessions (default: agent:main:hooks:sentinel)",
+        "default": "agent:main:hooks:sentinel"
+      },
+      "hookSessionGroup": {
+        "type": "string",
+        "description": "Optional default session group key. When set, callbacks without explicit hookSessionGroup are routed to this group session."
+      },
+      "hookRelayDedupeWindowMs": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Suppress duplicate relay messages for the same dedupe key within this window (milliseconds)",
+        "default": 120000
       },
       "stateFilePath": {
         "type": "string",
         "description": "Custom path for the sentinel state persistence file"
+      },
+      "notificationPayloadMode": {
+        "type": "string",
+        "enum": ["none", "concise", "debug"],
+        "description": "Controls delivery-target notifications: none (suppress message fan-out), concise relay text (default), or relay text with debug envelope payload",
+        "default": "concise"
       },
       "limits": {
         "type": "object",
@@ -35,26 +56,44 @@
         "description": "Resource limits for watcher creation",
         "properties": {
           "maxWatchersTotal": {
-            "type": "number",
+            "type": "integer",
             "description": "Maximum total watchers across all skills",
             "default": 200
           },
           "maxWatchersPerSkill": {
-            "type": "number",
+            "type": "integer",
             "description": "Maximum watchers per skill",
             "default": 20
           },
           "maxConditionsPerWatcher": {
-            "type": "number",
+            "type": "integer",
             "description": "Maximum conditions per watcher definition",
             "default": 25
           },
           "maxIntervalMsFloor": {
-            "type": "number",
+            "type": "integer",
             "description": "Minimum allowed polling interval in milliseconds",
             "default": 1000
           }
         }
+      },
+      "hookResponseTimeoutMs": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Milliseconds to wait for an assistant-authored hook response before optional fallback relay",
+        "default": 30000
+      },
+      "hookResponseFallbackMode": {
+        "type": "string",
+        "enum": ["none", "concise"],
+        "description": "Fallback behavior when no assistant response arrives before hookResponseTimeoutMs: none (silent timeout) or concise fail-safe relay",
+        "default": "concise"
+      },
+      "hookResponseDedupeWindowMs": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Deduplicate hook response-delivery contracts by dedupe key within this window (milliseconds)",
+        "default": 120000
       }
     }
   },
@@ -69,18 +108,38 @@
     },
     "dispatchAuthToken": {
       "label": "Dispatch Auth Token",
-      "help": "Bearer token for webhook dispatch authentication",
+      "help": "Optional override for webhook dispatch authentication. Sentinel auto-detects gateway auth token when available.",
       "sensitive": true,
       "placeholder": "sk-..."
     },
     "hookSessionKey": {
-      "label": "Sentinel Hook Session Key",
-      "help": "Session key that receives /hooks/sentinel callback events (default: agent:main:main)",
+      "label": "Hook Session Key (Deprecated)",
+      "help": "Deprecated alias for hookSessionPrefix. Sentinel appends watcher/group segments automatically.",
+      "advanced": true
+    },
+    "hookSessionPrefix": {
+      "label": "Hook Session Prefix",
+      "help": "Base prefix for isolated callback sessions (default: agent:main:hooks:sentinel)",
+      "advanced": true
+    },
+    "hookSessionGroup": {
+      "label": "Default Hook Session Group",
+      "help": "Optional default group key for callback sessions. Watchers with the same group share one isolated session.",
+      "advanced": true
+    },
+    "hookRelayDedupeWindowMs": {
+      "label": "Hook Relay Dedupe Window (ms)",
+      "help": "Suppress duplicate relay messages with the same dedupe key for this many milliseconds",
       "advanced": true
     },
     "stateFilePath": {
       "label": "State File Path",
       "help": "Custom path for sentinel state persistence file",
+      "advanced": true
+    },
+    "notificationPayloadMode": {
+      "label": "Notification Payload Mode",
+      "help": "Choose none (suppress delivery-target messages), concise relay text (default), or include debug envelope payload",
       "advanced": true
     },
     "limits.maxWatchersTotal": {
@@ -101,6 +160,21 @@
     "limits.maxIntervalMsFloor": {
       "label": "Min Poll Interval (ms)",
       "help": "Minimum allowed polling interval in milliseconds",
+      "advanced": true
+    },
+    "hookResponseTimeoutMs": {
+      "label": "Hook Response Timeout (ms)",
+      "help": "How long to wait for assistant-authored hook output before optional fallback relay",
+      "advanced": true
+    },
+    "hookResponseFallbackMode": {
+      "label": "Hook Response Fallback Mode",
+      "help": "If timeout occurs, choose none (silent) or concise fail-safe relay",
+      "advanced": true
+    },
+    "hookResponseDedupeWindowMs": {
+      "label": "Hook Response Dedupe Window (ms)",
+      "help": "Deduplicate hook-response delivery contracts by dedupe key within this window",
       "advanced": true
     }
   },

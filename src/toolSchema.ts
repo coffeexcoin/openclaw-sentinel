@@ -1,4 +1,8 @@
 import { Type } from "@sinclair/typebox";
+import { TemplateValueSchema } from "./templateValueSchema.js";
+
+const TemplateValueRefSchema = Type.Ref(TemplateValueSchema);
+const WATCHER_ID_PATTERN = "^[A-Za-z0-9_-]{1,128}$";
 
 const ConditionSchema = Type.Object({
   path: Type.String({ description: "JSONPath expression to evaluate against the response" }),
@@ -30,13 +34,50 @@ const FireConfigSchema = Type.Object({
     description: "Path appended to localDispatchBase for webhook delivery",
   }),
   eventName: Type.String({ description: "Event name included in the dispatched payload" }),
-  payloadTemplate: Type.Record(
-    Type.String(),
-    Type.Union([Type.String(), Type.Number(), Type.Boolean(), Type.Null()]),
-    {
+  payloadTemplate: Type.Record(Type.String(), TemplateValueRefSchema, {
+    description:
+      "Key-value template for the webhook payload. Supports ${...} interpolation from matched response data.",
+  }),
+  intent: Type.Optional(
+    Type.String({ description: "Generic callback intent for downstream agent routing" }),
+  ),
+  contextTemplate: Type.Optional(
+    Type.Record(Type.String(), TemplateValueRefSchema, {
       description:
-        "Key-value template for the webhook payload. Supports ${...} interpolation from matched response data.",
-    },
+        "Structured callback context template. Supports ${...} interpolation from matched response data.",
+    }),
+  ),
+  priority: Type.Optional(
+    Type.Union(
+      [Type.Literal("low"), Type.Literal("normal"), Type.Literal("high"), Type.Literal("critical")],
+      { description: "Callback urgency hint" },
+    ),
+  ),
+  deadlineTemplate: Type.Optional(
+    Type.String({ description: "Optional templated deadline string for callback consumers" }),
+  ),
+  dedupeKeyTemplate: Type.Optional(
+    Type.String({ description: "Optional template to derive deterministic trigger dedupe key" }),
+  ),
+  notificationPayloadMode: Type.Optional(
+    Type.Union(
+      [
+        Type.Literal("inherit"),
+        Type.Literal("none"),
+        Type.Literal("concise"),
+        Type.Literal("debug"),
+      ],
+      {
+        description:
+          "Notification payload mode override for deliveryTargets (inherit global default, suppress messages, concise relay text, or debug envelope block)",
+      },
+    ),
+  ),
+  sessionGroup: Type.Optional(
+    Type.String({
+      description:
+        "Optional hook session group key. Watchers with the same key share one isolated callback-processing session.",
+    }),
   ),
 });
 
@@ -46,9 +87,24 @@ const RetryPolicySchema = Type.Object({
   maxMs: Type.Number({ description: "Maximum delay cap in milliseconds" }),
 });
 
+const DeliveryTargetSchema = Type.Object(
+  {
+    channel: Type.String({ description: "Channel/provider id (e.g. telegram, discord)" }),
+    to: Type.String({ description: "Destination id within the channel" }),
+    accountId: Type.Optional(
+      Type.String({ description: "Optional account id for multi-account channels" }),
+    ),
+  },
+  { additionalProperties: false },
+);
+
 const WatcherSchema = Type.Object(
   {
-    id: Type.String({ description: "Unique watcher identifier" }),
+    id: Type.String({
+      pattern: WATCHER_ID_PATTERN,
+      maxLength: 128,
+      description: "Unique watcher identifier (letters, numbers, hyphen, underscore)",
+    }),
     skillId: Type.String({ description: "ID of the skill that owns this watcher" }),
     enabled: Type.Boolean({ description: "Whether the watcher is actively polling" }),
     strategy: Type.Union(
@@ -85,6 +141,12 @@ const WatcherSchema = Type.Object(
     fireOnce: Type.Optional(
       Type.Boolean({ description: "If true, the watcher disables itself after firing once" }),
     ),
+    deliveryTargets: Type.Optional(
+      Type.Array(DeliveryTargetSchema, {
+        description:
+          "Optional notification delivery targets. Defaults to the current chat/session context when omitted.",
+      }),
+    ),
     metadata: Type.Optional(
       Type.Record(Type.String(), Type.String(), { description: "Arbitrary key-value metadata" }),
     ),
@@ -92,23 +154,82 @@ const WatcherSchema = Type.Object(
   { description: "Full watcher definition" },
 );
 
-export const SentinelToolSchema = Type.Object(
+const CreateActionNameSchema = Type.Union([Type.Literal("create"), Type.Literal("add")], {
+  description: "Create action (alias: add)",
+});
+
+const IdActionNameSchema = Type.Union(
+  [
+    Type.Literal("enable"),
+    Type.Literal("disable"),
+    Type.Literal("remove"),
+    Type.Literal("delete"),
+    Type.Literal("status"),
+    Type.Literal("get"),
+  ],
+  { description: "ID-targeting action aliases: delete/remove and get/status" },
+);
+
+const ListActionNameSchema = Type.Literal("list", { description: "List all watchers" });
+
+const AnyActionNameSchema = Type.Union([
+  CreateActionNameSchema,
+  IdActionNameSchema,
+  ListActionNameSchema,
+]);
+
+const CreateActionSchema = Type.Object(
   {
-    action: Type.Union(
-      [
-        Type.Literal("create"),
-        Type.Literal("enable"),
-        Type.Literal("disable"),
-        Type.Literal("remove"),
-        Type.Literal("status"),
-        Type.Literal("list"),
-      ],
-      { description: "The action to perform" },
-    ),
-    id: Type.Optional(
-      Type.String({ description: "Watcher ID (required for enable/disable/remove/status)" }),
-    ),
-    watcher: Type.Optional(WatcherSchema),
+    action: CreateActionNameSchema,
+    watcher: WatcherSchema,
   },
   { additionalProperties: false },
+);
+
+const IdActionSchema = Type.Object(
+  {
+    action: IdActionNameSchema,
+    id: Type.String({
+      pattern: WATCHER_ID_PATTERN,
+      maxLength: 128,
+      description: "Watcher ID for action target",
+    }),
+  },
+  { additionalProperties: false },
+);
+
+const ListActionSchema = Type.Object(
+  {
+    action: ListActionNameSchema,
+  },
+  { additionalProperties: false },
+);
+
+export const SentinelToolValidationSchema = Type.Union(
+  [CreateActionSchema, IdActionSchema, ListActionSchema],
+  {
+    $defs: {
+      templateValue: TemplateValueSchema,
+    },
+  },
+);
+
+export const SentinelToolSchema = Type.Object(
+  {
+    action: AnyActionNameSchema,
+    watcher: Type.Optional(WatcherSchema),
+    id: Type.Optional(
+      Type.String({
+        pattern: WATCHER_ID_PATTERN,
+        maxLength: 128,
+        description: "Watcher ID for action target",
+      }),
+    ),
+  },
+  {
+    additionalProperties: false,
+    $defs: {
+      templateValue: TemplateValueSchema,
+    },
+  },
 );

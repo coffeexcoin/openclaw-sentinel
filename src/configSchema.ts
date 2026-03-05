@@ -12,17 +12,72 @@ const LimitsSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const NotificationPayloadModeSchema = Type.Union([
+  Type.Literal("none"),
+  Type.Literal("concise"),
+  Type.Literal("debug"),
+]);
+
+const HookResponseFallbackModeSchema = Type.Union([Type.Literal("none"), Type.Literal("concise")]);
+
 const ConfigSchema = Type.Object(
   {
     allowedHosts: Type.Array(Type.String()),
     localDispatchBase: Type.String({ minLength: 1 }),
     dispatchAuthToken: Type.Optional(Type.String()),
     hookSessionKey: Type.Optional(Type.String({ minLength: 1 })),
+    hookSessionPrefix: Type.Optional(Type.String({ minLength: 1 })),
+    hookSessionGroup: Type.Optional(Type.String({ minLength: 1 })),
+    hookRelayDedupeWindowMs: Type.Optional(Type.Integer({ minimum: 0 })),
+    hookResponseTimeoutMs: Type.Optional(Type.Integer({ minimum: 0 })),
+    hookResponseFallbackMode: Type.Optional(HookResponseFallbackModeSchema),
+    hookResponseDedupeWindowMs: Type.Optional(Type.Integer({ minimum: 0 })),
     stateFilePath: Type.Optional(Type.String()),
+    notificationPayloadMode: Type.Optional(NotificationPayloadModeSchema),
     limits: Type.Optional(LimitsSchema),
   },
   { additionalProperties: false },
 );
+
+function trimToUndefined(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function findInvalidNumericPath(input: Record<string, unknown>): string | undefined {
+  const numericPaths = [
+    "hookRelayDedupeWindowMs",
+    "hookResponseTimeoutMs",
+    "hookResponseDedupeWindowMs",
+  ] as const;
+
+  for (const key of numericPaths) {
+    const value = input[key];
+    if (typeof value === "number" && !Number.isFinite(value)) {
+      return `/${key}`;
+    }
+  }
+
+  const limits = input.limits;
+  if (limits && typeof limits === "object" && !Array.isArray(limits)) {
+    const limitsRecord = limits as Record<string, unknown>;
+    const limitKeys = [
+      "maxWatchersTotal",
+      "maxWatchersPerSkill",
+      "maxConditionsPerWatcher",
+      "maxIntervalMsFloor",
+    ] as const;
+    for (const key of limitKeys) {
+      const value = limitsRecord[key];
+      if (typeof value === "number" && !Number.isFinite(value)) {
+        return `/limits/${key}`;
+      }
+    }
+  }
+
+  return undefined;
+}
 
 function withDefaults(value: Record<string, unknown>): Record<string, unknown> {
   const limitsIn = (value.limits as Record<string, unknown> | undefined) ?? {};
@@ -33,22 +88,57 @@ function withDefaults(value: Record<string, unknown>): Record<string, unknown> {
       typeof value.localDispatchBase === "string" && value.localDispatchBase.length > 0
         ? value.localDispatchBase
         : "http://127.0.0.1:18789",
-    dispatchAuthToken:
-      typeof value.dispatchAuthToken === "string" ? value.dispatchAuthToken : undefined,
-    hookSessionKey:
-      typeof value.hookSessionKey === "string" ? value.hookSessionKey : "agent:main:main",
+    dispatchAuthToken: trimToUndefined(value.dispatchAuthToken),
+    hookSessionKey: typeof value.hookSessionKey === "string" ? value.hookSessionKey : undefined,
+    hookSessionPrefix:
+      typeof value.hookSessionPrefix === "string"
+        ? value.hookSessionPrefix
+        : "agent:main:hooks:sentinel",
+    hookSessionGroup:
+      typeof value.hookSessionGroup === "string" ? value.hookSessionGroup : undefined,
+    hookRelayDedupeWindowMs:
+      typeof value.hookRelayDedupeWindowMs === "number" &&
+      Number.isFinite(value.hookRelayDedupeWindowMs)
+        ? value.hookRelayDedupeWindowMs
+        : 120000,
+    hookResponseTimeoutMs:
+      typeof value.hookResponseTimeoutMs === "number" &&
+      Number.isFinite(value.hookResponseTimeoutMs)
+        ? value.hookResponseTimeoutMs
+        : 30000,
+    hookResponseFallbackMode: value.hookResponseFallbackMode === "none" ? "none" : "concise",
+    hookResponseDedupeWindowMs:
+      typeof value.hookResponseDedupeWindowMs === "number" &&
+      Number.isFinite(value.hookResponseDedupeWindowMs)
+        ? value.hookResponseDedupeWindowMs
+        : 120000,
     stateFilePath: typeof value.stateFilePath === "string" ? value.stateFilePath : undefined,
+    notificationPayloadMode:
+      value.notificationPayloadMode === "none"
+        ? "none"
+        : value.notificationPayloadMode === "debug"
+          ? "debug"
+          : "concise",
     limits: {
       maxWatchersTotal:
-        typeof limitsIn.maxWatchersTotal === "number" ? limitsIn.maxWatchersTotal : 200,
+        typeof limitsIn.maxWatchersTotal === "number" && Number.isFinite(limitsIn.maxWatchersTotal)
+          ? limitsIn.maxWatchersTotal
+          : 200,
       maxWatchersPerSkill:
-        typeof limitsIn.maxWatchersPerSkill === "number" ? limitsIn.maxWatchersPerSkill : 20,
+        typeof limitsIn.maxWatchersPerSkill === "number" &&
+        Number.isFinite(limitsIn.maxWatchersPerSkill)
+          ? limitsIn.maxWatchersPerSkill
+          : 20,
       maxConditionsPerWatcher:
-        typeof limitsIn.maxConditionsPerWatcher === "number"
+        typeof limitsIn.maxConditionsPerWatcher === "number" &&
+        Number.isFinite(limitsIn.maxConditionsPerWatcher)
           ? limitsIn.maxConditionsPerWatcher
           : 25,
       maxIntervalMsFloor:
-        typeof limitsIn.maxIntervalMsFloor === "number" ? limitsIn.maxIntervalMsFloor : 1000,
+        typeof limitsIn.maxIntervalMsFloor === "number" &&
+        Number.isFinite(limitsIn.maxIntervalMsFloor)
+          ? limitsIn.maxIntervalMsFloor
+          : 1000,
     },
   };
 }
@@ -72,7 +162,18 @@ export const sentinelConfigSchema: OpenClawPluginConfigSchema = {
       };
     }
 
-    const candidate = withDefaults(value as Record<string, unknown>);
+    const source = value as Record<string, unknown>;
+    const invalidNumericPath = findInvalidNumericPath(source);
+    if (invalidNumericPath) {
+      return {
+        success: false,
+        error: {
+          issues: [issue(invalidNumericPath, "Expected a finite number")],
+        },
+      };
+    }
+
+    const candidate = withDefaults(source);
 
     if (!Value.Check(ConfigSchema, candidate)) {
       const first = [...Value.Errors(ConfigSchema, candidate)][0];
@@ -111,23 +212,68 @@ export const sentinelConfigSchema: OpenClawPluginConfigSchema = {
       },
       localDispatchBase: {
         type: "string",
-        format: "uri",
         description: "Base URL for internal webhook dispatch",
         default: "http://127.0.0.1:18789",
       },
       dispatchAuthToken: {
         type: "string",
-        description: "Bearer token for authenticating webhook dispatch requests",
+        description:
+          "Optional bearer token override for webhook dispatch auth. Sentinel auto-detects gateway auth token when available.",
       },
       hookSessionKey: {
         type: "string",
         description:
-          "Session key used when /hooks/sentinel enqueues system events into the LLM loop",
-        default: "agent:main:main",
+          "Deprecated alias for hookSessionPrefix. Sentinel always appends watcher/group segments to prevent a shared global callback session.",
+      },
+      hookSessionPrefix: {
+        type: "string",
+        description:
+          "Base session key prefix used for isolated /hooks/sentinel callback sessions (default: agent:main:hooks:sentinel)",
+        default: "agent:main:hooks:sentinel",
+      },
+      hookSessionGroup: {
+        type: "string",
+        description:
+          "Optional default session group key. When set, callbacks without explicit hookSessionGroup are routed to this group session.",
+      },
+      hookRelayDedupeWindowMs: {
+        type: "integer",
+        minimum: 0,
+        description:
+          "Suppress duplicate relay messages for the same dedupe key within this window (milliseconds)",
+        default: 120000,
+      },
+      hookResponseTimeoutMs: {
+        type: "integer",
+        minimum: 0,
+        description:
+          "Milliseconds to wait for an assistant-authored hook response before optional fallback relay",
+        default: 30000,
+      },
+      hookResponseFallbackMode: {
+        type: "string",
+        enum: ["none", "concise"],
+        description:
+          "Fallback behavior when no assistant response arrives before hookResponseTimeoutMs: none (silent timeout) or concise fail-safe relay",
+        default: "concise",
+      },
+      hookResponseDedupeWindowMs: {
+        type: "integer",
+        minimum: 0,
+        description:
+          "Deduplicate hook response-delivery contracts by dedupe key within this window (milliseconds)",
+        default: 120000,
       },
       stateFilePath: {
         type: "string",
         description: "Custom path for the sentinel state persistence file",
+      },
+      notificationPayloadMode: {
+        type: "string",
+        enum: ["none", "concise", "debug"],
+        description:
+          "Controls delivery-target notifications: none (suppress message fan-out), concise relay text (default), or relay text with debug envelope payload",
+        default: "concise",
       },
       limits: {
         type: "object",
@@ -135,22 +281,22 @@ export const sentinelConfigSchema: OpenClawPluginConfigSchema = {
         description: "Resource limits for watcher creation",
         properties: {
           maxWatchersTotal: {
-            type: "number",
+            type: "integer",
             description: "Maximum total watchers across all skills",
             default: 200,
           },
           maxWatchersPerSkill: {
-            type: "number",
+            type: "integer",
             description: "Maximum watchers per skill",
             default: 20,
           },
           maxConditionsPerWatcher: {
-            type: "number",
+            type: "integer",
             description: "Maximum conditions per watcher definition",
             default: 25,
           },
           maxIntervalMsFloor: {
-            type: "number",
+            type: "integer",
             description: "Minimum allowed polling interval in milliseconds",
             default: 1000,
           },
@@ -169,18 +315,53 @@ export const sentinelConfigSchema: OpenClawPluginConfigSchema = {
     },
     dispatchAuthToken: {
       label: "Dispatch Auth Token",
-      help: "Bearer token for webhook dispatch authentication (or use SENTINEL_DISPATCH_TOKEN env var)",
+      help: "Optional override for webhook dispatch auth token. Sentinel auto-detects gateway auth token when available (or use SENTINEL_DISPATCH_TOKEN env var).",
       sensitive: true,
       placeholder: "sk-...",
     },
     hookSessionKey: {
-      label: "Sentinel Hook Session Key",
-      help: "Session key that receives /hooks/sentinel callback events (default: agent:main:main)",
+      label: "Hook Session Key (Deprecated)",
+      help: "Deprecated alias for hookSessionPrefix. Sentinel appends watcher/group segments automatically.",
+      advanced: true,
+    },
+    hookSessionPrefix: {
+      label: "Hook Session Prefix",
+      help: "Base prefix for isolated callback sessions (default: agent:main:hooks:sentinel)",
+      advanced: true,
+    },
+    hookSessionGroup: {
+      label: "Default Hook Session Group",
+      help: "Optional default group key for callback sessions. Watchers with the same group share one isolated session.",
+      advanced: true,
+    },
+    hookRelayDedupeWindowMs: {
+      label: "Hook Relay Dedupe Window (ms)",
+      help: "Suppress duplicate relay messages with the same dedupe key for this many milliseconds",
+      advanced: true,
+    },
+    hookResponseTimeoutMs: {
+      label: "Hook Response Timeout (ms)",
+      help: "How long to wait for assistant-authored hook output before optional fallback relay",
+      advanced: true,
+    },
+    hookResponseFallbackMode: {
+      label: "Hook Response Fallback Mode",
+      help: "If timeout occurs, choose none (silent) or concise fail-safe relay",
+      advanced: true,
+    },
+    hookResponseDedupeWindowMs: {
+      label: "Hook Response Dedupe Window (ms)",
+      help: "Deduplicate hook-response delivery contracts by dedupe key within this window",
       advanced: true,
     },
     stateFilePath: {
       label: "State File Path",
       help: "Custom path for sentinel state persistence file",
+      advanced: true,
+    },
+    notificationPayloadMode: {
+      label: "Notification Payload Mode",
+      help: "Choose none (suppress delivery-target messages), concise relay text (default), or include debug envelope payload",
       advanced: true,
     },
     "limits.maxWatchersTotal": {

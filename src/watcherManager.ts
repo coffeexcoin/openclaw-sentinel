@@ -3,21 +3,73 @@ import { assertHostAllowed, assertWatcherLimits } from "./limits.js";
 import { defaultStatePath, loadState, saveState } from "./stateStore.js";
 import { renderTemplate } from "./template.js";
 import { validateWatcherDefinition } from "./validator.js";
+import { createCallbackEnvelope } from "./callbackEnvelope.js";
 import { httpPollStrategy } from "./strategies/httpPoll.js";
 import { httpLongPollStrategy } from "./strategies/httpLongPoll.js";
 import { sseStrategy } from "./strategies/sse.js";
 import { websocketStrategy } from "./strategies/websocket.js";
-import { createCallbackEnvelope } from "./callbackEnvelope.js";
 import {
   DEFAULT_SENTINEL_WEBHOOK_PATH,
+  DeliveryTarget,
   GatewayWebhookDispatcher,
-  SENTINEL_CALLBACK_ENVELOPE_KEY,
+  NotificationPayloadMode,
   SentinelConfig,
   WatcherDefinition,
   WatcherRuntimeState,
 } from "./types.js";
 
-const backoff = (base: number, max: number, failures: number) => {
+export const RESET_BACKOFF_AFTER_MS = 60_000;
+const MAX_DEBUG_NOTIFICATION_CHARS = 7000;
+
+function trimForChat(text: string): string {
+  if (text.length <= MAX_DEBUG_NOTIFICATION_CHARS) return text;
+  return `${text.slice(0, MAX_DEBUG_NOTIFICATION_CHARS)}…`;
+}
+
+function resolveNotificationPayloadMode(
+  config: SentinelConfig,
+  watcher: WatcherDefinition,
+): NotificationPayloadMode {
+  const override = watcher.fire.notificationPayloadMode;
+  if (override === "none" || override === "concise" || override === "debug") return override;
+  if (config.notificationPayloadMode === "none") return "none";
+  return config.notificationPayloadMode === "debug" ? "debug" : "concise";
+}
+
+function buildDeliveryNotificationMessage(
+  watcher: WatcherDefinition,
+  body: Record<string, unknown>,
+  mode: NotificationPayloadMode,
+): string {
+  const matchedAt =
+    typeof body.trigger === "object" &&
+    body.trigger !== null &&
+    typeof (body.trigger as Record<string, unknown>).matchedAt === "string"
+      ? ((body.trigger as Record<string, unknown>).matchedAt as string)
+      : new Date().toISOString();
+
+  const concise = `Sentinel watcher "${watcher.id}" fired event "${watcher.fire.eventName}" at ${matchedAt}.`;
+  if (mode !== "debug") return concise;
+
+  const envelopeJson = JSON.stringify(body, null, 2) ?? "{}";
+  return trimForChat(`${concise}\n\nSENTINEL_DEBUG_ENVELOPE_JSON:\n${envelopeJson}`);
+}
+
+export interface WatcherCreateContext {
+  deliveryTargets?: DeliveryTarget[];
+}
+
+export interface WatcherNotifier {
+  notify(target: DeliveryTarget, message: string): Promise<void>;
+}
+
+export interface WatcherLogger {
+  info?(message: string): void;
+  warn?(message: string): void;
+  error?(message: string): void;
+}
+
+export const backoff = (base: number, max: number, failures: number): number => {
   const raw = Math.min(max, base * 2 ** failures);
   const jitter = Math.floor(raw * 0.25 * (Math.random() * 2 - 1));
   return Math.max(base, raw + jitter);
@@ -29,6 +81,7 @@ export class WatcherManager {
   private stops = new Map<string, () => void | Promise<void>>();
   private retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private statePath: string;
+  private logger?: WatcherLogger;
   private webhookRegistration: {
     path: string;
     status: "pending" | "ok" | "error";
@@ -42,6 +95,7 @@ export class WatcherManager {
   constructor(
     private config: SentinelConfig,
     private dispatcher: GatewayWebhookDispatcher,
+    private notifier?: WatcherNotifier,
   ) {
     this.statePath = config.stateFilePath ?? defaultStatePath();
   }
@@ -57,14 +111,18 @@ export class WatcherManager {
         assertWatcherLimits(this.config, this.list(), watcher);
         this.watchers.set(watcher.id, watcher);
       } catch (err) {
+        const prev = this.runtime[rawWatcher.id];
         this.runtime[rawWatcher.id] = {
           id: rawWatcher.id,
-          consecutiveFailures: (this.runtime[rawWatcher.id]?.consecutiveFailures ?? 0) + 1,
+          consecutiveFailures: (prev?.consecutiveFailures ?? 0) + 1,
+          reconnectAttempts: prev?.reconnectAttempts ?? 0,
           lastError: `Invalid persisted watcher: ${String((err as any)?.message ?? err)}`,
-          lastResponseAt: this.runtime[rawWatcher.id]?.lastResponseAt,
-          lastEvaluated: this.runtime[rawWatcher.id]?.lastEvaluated,
-          lastPayloadHash: this.runtime[rawWatcher.id]?.lastPayloadHash,
-          lastPayload: this.runtime[rawWatcher.id]?.lastPayload,
+          lastResponseAt: prev?.lastResponseAt,
+          lastEvaluated: prev?.lastEvaluated,
+          lastPayloadHash: prev?.lastPayloadHash,
+          lastPayload: prev?.lastPayload,
+          lastDispatchError: prev?.lastDispatchError,
+          lastDispatchErrorAt: prev?.lastDispatchErrorAt,
         };
       }
     }
@@ -72,13 +130,16 @@ export class WatcherManager {
     for (const watcher of this.list().filter((w) => w.enabled)) await this.startWatcher(watcher.id);
   }
 
-  async create(input: unknown): Promise<WatcherDefinition> {
+  async create(input: unknown, ctx?: WatcherCreateContext): Promise<WatcherDefinition> {
     const watcher = validateWatcherDefinition(input);
+    if (!watcher.deliveryTargets?.length && ctx?.deliveryTargets?.length) {
+      watcher.deliveryTargets = ctx.deliveryTargets;
+    }
     assertHostAllowed(this.config, watcher.endpoint);
     assertWatcherLimits(this.config, this.list(), watcher);
     if (this.watchers.has(watcher.id)) throw new Error(`Watcher already exists: ${watcher.id}`);
     this.watchers.set(watcher.id, watcher);
-    this.runtime[watcher.id] = { id: watcher.id, consecutiveFailures: 0 };
+    this.runtime[watcher.id] = { id: watcher.id, consecutiveFailures: 0, reconnectAttempts: 0 };
     if (watcher.enabled) await this.startWatcher(watcher.id);
     await this.persist();
     return watcher;
@@ -89,6 +150,14 @@ export class WatcherManager {
   }
   status(id: string): WatcherRuntimeState | undefined {
     return this.runtime[id];
+  }
+
+  setNotifier(notifier: WatcherNotifier | undefined): void {
+    this.notifier = notifier;
+  }
+
+  setLogger(logger: WatcherLogger | undefined): void {
+    this.logger = logger;
   }
 
   setWebhookRegistrationStatus(status: "ok" | "error", message?: string, path?: string): void {
@@ -138,9 +207,22 @@ export class WatcherManager {
     )[watcher.strategy];
 
     const handleFailure = async (err: unknown) => {
-      const rt = this.runtime[id] ?? { id, consecutiveFailures: 0 };
+      const rt = this.runtime[id] ?? { id, consecutiveFailures: 0, reconnectAttempts: 0 };
+      rt.reconnectAttempts ??= 0;
+
+      const errMsg = String(err instanceof Error ? err.message : err);
+      rt.lastDisconnectAt = new Date().toISOString();
+      rt.lastDisconnectReason = errMsg;
+      rt.lastError = errMsg;
+
+      if (rt.lastConnectAt) {
+        const connectedMs = Date.now() - new Date(rt.lastConnectAt).getTime();
+        if (connectedMs >= RESET_BACKOFF_AFTER_MS) {
+          rt.consecutiveFailures = 0;
+        }
+      }
+
       rt.consecutiveFailures += 1;
-      rt.lastError = String((err as any)?.message ?? err);
       this.runtime[id] = rt;
 
       if (this.retryTimers.has(id)) {
@@ -150,6 +232,7 @@ export class WatcherManager {
 
       const delay = backoff(watcher.retry.baseMs, watcher.retry.maxMs, rt.consecutiveFailures);
       if (rt.consecutiveFailures <= watcher.retry.maxRetries && watcher.enabled) {
+        rt.reconnectAttempts += 1;
         await this.stopWatcher(id);
         const timer = setTimeout(() => {
           this.retryTimers.delete(id);
@@ -163,7 +246,7 @@ export class WatcherManager {
     const stop = await handler(
       watcher,
       async (payload) => {
-        const rt = this.runtime[id] ?? { id, consecutiveFailures: 0 };
+        const rt = this.runtime[id] ?? { id, consecutiveFailures: 0, reconnectAttempts: 0 };
         const previousPayload = rt.lastPayload;
         const matched = evaluateConditions(
           watcher.conditions,
@@ -176,37 +259,100 @@ export class WatcherManager {
         rt.lastResponseAt = new Date().toISOString();
         rt.lastEvaluated = rt.lastResponseAt;
         rt.consecutiveFailures = 0;
+        rt.reconnectAttempts = 0;
         rt.lastError = undefined;
         this.runtime[id] = rt;
         if (matched) {
           const matchedAt = new Date().toISOString();
-          const body = renderTemplate(watcher.fire.payloadTemplate, {
+          const payloadBody = renderTemplate(watcher.fire.payloadTemplate, {
             watcher,
             event: { name: watcher.fire.eventName },
             payload,
             timestamp: matchedAt,
           });
           const webhookPath = watcher.fire.webhookPath ?? DEFAULT_SENTINEL_WEBHOOK_PATH;
-          const callbackEnvelope = createCallbackEnvelope({
+          const body = createCallbackEnvelope({
             watcher,
             payload,
-            payloadBody: body,
+            payloadBody,
             matchedAt,
             webhookPath,
           });
+          let dispatchSucceeded = false;
+          try {
+            await this.dispatcher.dispatch(webhookPath, body);
+            dispatchSucceeded = true;
+            rt.lastDispatchError = undefined;
+            rt.lastDispatchErrorAt = undefined;
+          } catch (err) {
+            const message = String((err as Error)?.message ?? err);
+            const status = (err as { status?: unknown })?.status;
+            rt.lastDispatchError = message;
+            rt.lastDispatchErrorAt = new Date().toISOString();
+            rt.lastError = message;
 
-          await this.dispatcher.dispatch(webhookPath, {
-            ...body,
-            [SENTINEL_CALLBACK_ENVELOPE_KEY]: callbackEnvelope,
-          });
-          if (watcher.fireOnce) {
-            watcher.enabled = false;
-            await this.stopWatcher(id);
+            this.logger?.warn?.(
+              `[openclaw-sentinel] Dispatch failed for watcher=${watcher.id} webhookPath=${webhookPath}: ${message}`,
+            );
+            if (status === 401 || status === 403) {
+              this.logger?.warn?.(
+                "[openclaw-sentinel] Dispatch authorization rejected (401/403). dispatchAuthToken may be missing or invalid. Sentinel now auto-detects gateway auth token when possible; explicit config/env overrides still take precedence.",
+              );
+            }
+          }
+
+          if (dispatchSucceeded) {
+            const deliveryMode = resolveNotificationPayloadMode(this.config, watcher);
+            const isSentinelWebhook = webhookPath === DEFAULT_SENTINEL_WEBHOOK_PATH;
+            if (
+              deliveryMode !== "none" &&
+              watcher.deliveryTargets?.length &&
+              this.notifier &&
+              !isSentinelWebhook
+            ) {
+              const attemptedAt = new Date().toISOString();
+              const message = buildDeliveryNotificationMessage(watcher, body, deliveryMode);
+              const failures: Array<{ target: DeliveryTarget; error: string }> = [];
+              let successCount = 0;
+
+              await Promise.all(
+                watcher.deliveryTargets.map(async (target) => {
+                  try {
+                    await this.notifier?.notify(target, message);
+                    successCount += 1;
+                  } catch (err) {
+                    failures.push({
+                      target,
+                      error: String((err as Error)?.message ?? err),
+                    });
+                  }
+                }),
+              );
+
+              rt.lastDelivery = {
+                attemptedAt,
+                successCount,
+                failureCount: failures.length,
+                failures: failures.length > 0 ? failures : undefined,
+              };
+            }
+
+            if (watcher.fireOnce) {
+              watcher.enabled = false;
+              await this.stopWatcher(id);
+            }
           }
         }
         await this.persist();
       },
       handleFailure,
+      {
+        onConnect: () => {
+          const rt = this.runtime[id] ?? { id, consecutiveFailures: 0, reconnectAttempts: 0 };
+          rt.lastConnectAt = new Date().toISOString();
+          this.runtime[id] = rt;
+        },
+      },
     );
 
     this.stops.set(id, stop);

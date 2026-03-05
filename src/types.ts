@@ -21,10 +21,28 @@ export interface Condition {
 export const DEFAULT_SENTINEL_WEBHOOK_PATH = "/hooks/sentinel";
 export const SENTINEL_CALLBACK_ENVELOPE_KEY = "__sentinelCallback";
 
+export type PriorityLevel = "low" | "normal" | "high" | "critical";
+export type NotificationPayloadMode = "none" | "concise" | "debug";
+export type NotificationPayloadModeOverride = "inherit" | NotificationPayloadMode;
+
+export type HookResponseFallbackMode = "none" | "concise";
+
+export const SENTINEL_ORIGIN_SESSION_KEY_METADATA = "openclaw.sentinel.origin.sessionKey";
+export const SENTINEL_ORIGIN_CHANNEL_METADATA = "openclaw.sentinel.origin.channel";
+export const SENTINEL_ORIGIN_TARGET_METADATA = "openclaw.sentinel.origin.to";
+export const SENTINEL_ORIGIN_ACCOUNT_METADATA = "openclaw.sentinel.origin.accountId";
+
 export interface FireConfig {
   webhookPath?: string;
   eventName: string;
-  payloadTemplate: Record<string, string | number | boolean | null>;
+  payloadTemplate: Record<string, import("./template.js").TemplateValue>;
+  intent?: string;
+  contextTemplate?: Record<string, import("./template.js").TemplateValue>;
+  priority?: PriorityLevel;
+  deadlineTemplate?: string;
+  dedupeKeyTemplate?: string;
+  notificationPayloadMode?: NotificationPayloadModeOverride;
+  sessionGroup?: string;
 }
 
 export interface SentinelCallbackEnvelope {
@@ -56,6 +74,12 @@ export interface RetryPolicy {
   maxMs: number;
 }
 
+export interface DeliveryTarget {
+  channel: string;
+  to: string;
+  accountId?: string;
+}
+
 export interface WatcherDefinition {
   id: string;
   skillId: string;
@@ -72,6 +96,7 @@ export interface WatcherDefinition {
   fire: FireConfig;
   retry: RetryPolicy;
   fireOnce?: boolean;
+  deliveryTargets?: DeliveryTarget[];
   metadata?: Record<string, string>;
 }
 
@@ -80,9 +105,21 @@ export interface WatcherRuntimeState {
   lastError?: string;
   lastResponseAt?: string;
   consecutiveFailures: number;
+  reconnectAttempts: number;
   lastPayloadHash?: string;
   lastPayload?: unknown;
   lastEvaluated?: string;
+  lastConnectAt?: string;
+  lastDisconnectAt?: string;
+  lastDisconnectReason?: string;
+  lastDispatchError?: string;
+  lastDispatchErrorAt?: string;
+  lastDelivery?: {
+    attemptedAt: string;
+    successCount: number;
+    failureCount: number;
+    failures?: Array<{ target: DeliveryTarget; error: string }>;
+  };
 }
 
 export interface SentinelStateFile {
@@ -102,8 +139,16 @@ export interface SentinelConfig {
   allowedHosts: string[];
   localDispatchBase: string;
   dispatchAuthToken?: string;
+  /** @deprecated Backward-compatible alias for hookSessionPrefix. */
   hookSessionKey?: string;
+  hookSessionPrefix?: string;
+  hookSessionGroup?: string;
+  hookRelayDedupeWindowMs?: number;
+  hookResponseTimeoutMs?: number;
+  hookResponseFallbackMode?: HookResponseFallbackMode;
+  hookResponseDedupeWindowMs?: number;
   stateFilePath?: string;
+  notificationPayloadMode?: NotificationPayloadMode;
   limits: SentinelLimits;
 }
 

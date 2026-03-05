@@ -1,6 +1,6 @@
 {
   "name": "@coffeexdev/openclaw-sentinel",
-  "version": "0.2.1",
+  "version": "0.7.0",
   "description": "Secure declarative gateway-native watcher plugin for OpenClaw",
   "keywords": [
     "openclaw",
@@ -31,9 +31,10 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run test:unit && npm run test:e2e",
+    "test": "pnpm run test:unit && pnpm run test:e2e",
     "test:unit": "vitest run --config vitest.unit.config.ts",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:smoke-install": "./scripts/smoke-install.sh",
     "lint": "tsc --noEmit",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
@@ -52,6 +53,7 @@
     "@changesets/cli": "^2.29.7",
     "@types/node": "^24.0.0",
     "@types/ws": "^8.5.13",
+    "ajv": "^8.17.1",
     "husky": "^9.1.7",
     "lint-staged": "^16.3.2",
     "openclaw": "latest",
@@ -72,6 +74,7 @@
   "engines": {
     "node": ">=22"
   },
+  "packageManager": "pnpm@10.6.5",
   "openclaw": {
     "extensions": [
       "dist/index.js"

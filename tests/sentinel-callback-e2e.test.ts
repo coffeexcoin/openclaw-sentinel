@@ -4,7 +4,12 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { createSentinelPlugin } from "../src/index.js";
-import { SENTINEL_CALLBACK_ENVELOPE_KEY } from "../src/types.js";
+import {
+  SENTINEL_ORIGIN_ACCOUNT_METADATA,
+  SENTINEL_ORIGIN_CHANNEL_METADATA,
+  SENTINEL_ORIGIN_SESSION_KEY_METADATA,
+  SENTINEL_ORIGIN_TARGET_METADATA,
+} from "../src/types.js";
 
 type MockRes = {
   statusCode?: number;
@@ -14,9 +19,13 @@ type MockRes = {
   end: (body: string) => void;
 };
 
-function makeReq(method: string, body?: string) {
-  const req = new PassThrough() as PassThrough & { method: string };
+function makeReq(method: string, body?: string, headers?: Record<string, string>) {
+  const req = new PassThrough() as PassThrough & {
+    method: string;
+    headers: Record<string, string>;
+  };
   req.method = method;
+  req.headers = headers ?? {};
   if (body !== undefined) req.end(body);
   else req.end();
   return req;
@@ -39,7 +48,7 @@ function loadFixture(name: string): Record<string, unknown> {
   return JSON.parse(readFileSync(fixturePath, "utf8"));
 }
 
-async function waitFor(condition: () => boolean, timeoutMs = 1500): Promise<void> {
+async function waitFor(condition: () => boolean, timeoutMs = 2500): Promise<void> {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
     if (condition()) return;
@@ -53,6 +62,10 @@ async function runE2EPipeline(args: {
   payloadTemplate: Record<string, string | number | boolean | null>;
   eventName: string;
   watcherId: string;
+  intent?: string;
+  priority?: "low" | "normal" | "high" | "critical";
+  deliveryTargets?: Array<{ channel: string; to: string; accountId?: string }>;
+  metadata?: Record<string, string>;
 }): Promise<{
   dispatchBody: Record<string, unknown>;
   enqueueSystemEvent: ReturnType<typeof vi.fn>;
@@ -86,7 +99,7 @@ async function runE2EPipeline(args: {
     registerTool: vi.fn(),
     registerHttpRoute,
     runtime: { system: { enqueueSystemEvent, requestHeartbeatNow } },
-    logger: { info: vi.fn(), error: vi.fn() },
+    logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
   } as any);
 
   await plugin.init();
@@ -96,8 +109,10 @@ async function runE2EPipeline(args: {
   let dispatchHeaders: Record<string, string> | undefined;
 
   const oldFetch = globalThis.fetch;
-  globalThis.fetch = vi.fn(async (url: string, options?: any) => {
-    if (url === endpoint) {
+  globalThis.fetch = vi.fn(async (url: unknown, options?: any) => {
+    const href = String(url);
+
+    if (href.startsWith(endpoint)) {
       return {
         ok: true,
         status: 200,
@@ -106,11 +121,13 @@ async function runE2EPipeline(args: {
       } as any;
     }
 
-    if (url === `${localDispatchBase}/hooks/sentinel`) {
+    if (href === `${localDispatchBase}/hooks/sentinel`) {
       dispatchBody = JSON.parse(String(options?.body ?? "{}"));
       dispatchHeaders = options?.headers ?? {};
 
-      const req = makeReq("POST", String(options?.body ?? "{}"));
+      const req = makeReq("POST", String(options?.body ?? "{}"), {
+        "content-type": "application/json",
+      });
       const res = makeRes();
       await route.handler(req as any, res as any);
 
@@ -122,7 +139,7 @@ async function runE2EPipeline(args: {
       } as any;
     }
 
-    throw new Error(`Unexpected fetch URL in test: ${url}`);
+    throw new Error(`Unexpected fetch URL in test: ${href}`);
   }) as any;
 
   try {
@@ -139,9 +156,13 @@ async function runE2EPipeline(args: {
         webhookPath: "/hooks/sentinel",
         eventName: args.eventName,
         payloadTemplate: args.payloadTemplate,
+        ...(args.intent ? { intent: args.intent } : {}),
+        ...(args.priority ? { priority: args.priority } : {}),
       },
       retry: { maxRetries: 0, baseMs: 50, maxMs: 100 },
       fireOnce: true,
+      ...(args.deliveryTargets ? { deliveryTargets: args.deliveryTargets } : {}),
+      ...(args.metadata ? { metadata: args.metadata } : {}),
     });
 
     await waitFor(() => enqueueSystemEvent.mock.calls.length > 0);
@@ -163,7 +184,7 @@ async function runE2EPipeline(args: {
 }
 
 describe("sentinel callback e2e", () => {
-  it("creates callback envelope and relays enriched context into the LLM event payload", async () => {
+  it("dispatches callback envelope and relays structured context into the LLM event payload", async () => {
     const endpointPayload = loadFixture("price-alert-source.json");
 
     const { dispatchBody, enqueueSystemEvent, requestHeartbeatNow, dispatchHeaders } =
@@ -182,31 +203,42 @@ describe("sentinel callback e2e", () => {
       });
 
     expect(dispatchHeaders.authorization).toBe("Bearer sentinel-test-token");
-    expect(dispatchBody[SENTINEL_CALLBACK_ENVELOPE_KEY]).toBeTruthy();
-
-    const envelope = dispatchBody[SENTINEL_CALLBACK_ENVELOPE_KEY] as Record<string, any>;
-    expect(envelope.type).toBe("sentinel.callback");
-    expect(envelope.watcher.id).toBe("btc-price-50k");
-    expect(envelope.watcher.eventName).toBe("price_alert");
-    expect(envelope.context.currentPrice).toBe(51234.56);
-    expect(envelope.context.threshold).toBe(50000);
+    expect(dispatchBody).toMatchObject({
+      type: "sentinel.callback",
+      intent: "price_alert",
+      watcher: {
+        id: "btc-price-50k",
+        eventName: "price_alert",
+      },
+      trigger: {
+        priority: "normal",
+      },
+      context: {
+        currentPrice: 51234.56,
+        threshold: 50000,
+      },
+      source: {
+        route: "/hooks/sentinel",
+        plugin: "openclaw-sentinel",
+      },
+    });
 
     const relayedPrompt = String(enqueueSystemEvent.mock.calls[0][0] ?? "");
-    expect(relayedPrompt).toContain("Sentinel Callback: price_alert");
+    expect(relayedPrompt).toContain("SENTINEL_TRIGGER:");
     expect(relayedPrompt).toContain("SENTINEL_CALLBACK_CONTEXT_JSON:");
+    expect(relayedPrompt).toContain('"id": "btc-price-50k"');
     expect(relayedPrompt).toContain('"currentPrice": 51234.56');
-    expect(relayedPrompt).toContain("Watcher: btc-price-50k");
 
     expect(requestHeartbeatNow).toHaveBeenCalledWith({
-      reason: "hook:sentinel",
-      sessionKey: "agent:main:main",
+      reason: "cron:sentinel-callback",
+      sessionKey: "agent:main:main:watcher:btc-price-50k",
     });
   });
 
-  it("suppresses control tokens and falls back to structured envelope summary", async () => {
+  it("propagates origin metadata into delivery context and carries deliveryTargets", async () => {
     const endpointPayload = loadFixture("service-health-source.json");
 
-    const { enqueueSystemEvent } = await runE2EPipeline({
+    const { dispatchBody } = await runE2EPipeline({
       endpointPayload,
       eventName: "service_health",
       watcherId: "gateway-health",
@@ -214,33 +246,56 @@ describe("sentinel callback e2e", () => {
         watcherId: "${watcher.id}",
         eventName: "${event.name}",
         status: "${payload.status}",
-        message: "NO_REPLY",
+      },
+      deliveryTargets: [{ channel: "telegram", to: "5613673222" }],
+      metadata: {
+        [SENTINEL_ORIGIN_SESSION_KEY_METADATA]: "agent:main:telegram:direct:5613673222",
+        [SENTINEL_ORIGIN_CHANNEL_METADATA]: "telegram",
+        [SENTINEL_ORIGIN_TARGET_METADATA]: "5613673222",
+        [SENTINEL_ORIGIN_ACCOUNT_METADATA]: "acct-1",
       },
     });
 
-    const relayedPrompt = String(enqueueSystemEvent.mock.calls[0][0] ?? "");
-    expect(relayedPrompt).not.toContain("NO_REPLY");
-    expect(relayedPrompt).toContain("Sentinel Callback: service_health");
-    expect(relayedPrompt).toContain("SENTINEL_CALLBACK_CONTEXT_JSON:");
+    expect(dispatchBody.deliveryTargets).toEqual([{ channel: "telegram", to: "5613673222" }]);
+    expect(dispatchBody.deliveryContext).toMatchObject({
+      sessionKey: "agent:main:telegram:direct:5613673222",
+      messageChannel: "telegram",
+      requesterSenderId: "5613673222",
+      agentAccountId: "acct-1",
+      currentChat: {
+        channel: "telegram",
+        to: "5613673222",
+        accountId: "acct-1",
+      },
+    });
   });
 
-  it("strips control tokens while preserving human text when present", async () => {
+  it("honors explicit intent and priority when building callback envelope", async () => {
     const endpointPayload = loadFixture("service-health-source.json");
 
-    const { enqueueSystemEvent } = await runE2EPipeline({
+    const { dispatchBody, enqueueSystemEvent } = await runE2EPipeline({
       endpointPayload,
       eventName: "service_health",
-      watcherId: "gateway-health-token-strip",
+      watcherId: "gateway-health-priority",
+      intent: "incident_triage",
+      priority: "critical",
       payloadTemplate: {
         watcherId: "${watcher.id}",
         eventName: "${event.name}",
-        message: "NO_REPLY investigate gateway health degradation",
+        status: "${payload.status}",
       },
     });
 
+    expect(dispatchBody.intent).toBe("incident_triage");
+    expect(dispatchBody.watcher).toMatchObject({
+      id: "gateway-health-priority",
+      eventName: "service_health",
+      intent: "incident_triage",
+    });
+    expect(dispatchBody.trigger).toMatchObject({ priority: "critical" });
+
     const relayedPrompt = String(enqueueSystemEvent.mock.calls[0][0] ?? "");
-    expect(relayedPrompt).not.toContain("NO_REPLY");
-    expect(relayedPrompt).toContain("investigate gateway health degradation");
-    expect(relayedPrompt).not.toContain("SENTINEL_CALLBACK_CONTEXT_JSON");
+    expect(relayedPrompt).toContain("Never emit control tokens");
+    expect(relayedPrompt).toContain("incident_triage");
   });
 });

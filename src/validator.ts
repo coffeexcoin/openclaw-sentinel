@@ -1,9 +1,14 @@
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
+import { TemplateValueSchema } from "./templateValueSchema.js";
 import { DEFAULT_SENTINEL_WEBHOOK_PATH, WatcherDefinition } from "./types.js";
+
+const TemplateValueRefSchema = Type.Ref(TemplateValueSchema);
 
 const codeyKeyPattern = /(script|code|eval|handler|function|import|require)/i;
 const codeyValuePattern = /(=>|\bfunction\b|\bimport\s+|\brequire\s*\(|\beval\s*\()/i;
+
+const WATCHER_ID_PATTERN = "^[A-Za-z0-9_-]{1,128}$";
 
 const ConditionSchema = Type.Object(
   {
@@ -26,9 +31,9 @@ const ConditionSchema = Type.Object(
   { additionalProperties: false },
 );
 
-const WatcherSchema = Type.Object(
+export const WatcherSchema = Type.Object(
   {
-    id: Type.String({ minLength: 1 }),
+    id: Type.String({ pattern: WATCHER_ID_PATTERN, maxLength: 128 }),
     skillId: Type.String({ minLength: 1 }),
     enabled: Type.Boolean(),
     strategy: Type.Union([
@@ -49,10 +54,28 @@ const WatcherSchema = Type.Object(
       {
         webhookPath: Type.Optional(Type.String({ pattern: "^/" })),
         eventName: Type.String({ minLength: 1 }),
-        payloadTemplate: Type.Record(
-          Type.String(),
-          Type.Union([Type.String(), Type.Number(), Type.Boolean(), Type.Null()]),
+        payloadTemplate: Type.Record(Type.String(), TemplateValueRefSchema),
+        intent: Type.Optional(Type.String({ minLength: 1 })),
+        contextTemplate: Type.Optional(Type.Record(Type.String(), TemplateValueRefSchema)),
+        priority: Type.Optional(
+          Type.Union([
+            Type.Literal("low"),
+            Type.Literal("normal"),
+            Type.Literal("high"),
+            Type.Literal("critical"),
+          ]),
         ),
+        deadlineTemplate: Type.Optional(Type.String({ minLength: 1 })),
+        dedupeKeyTemplate: Type.Optional(Type.String({ minLength: 1 })),
+        notificationPayloadMode: Type.Optional(
+          Type.Union([
+            Type.Literal("inherit"),
+            Type.Literal("none"),
+            Type.Literal("concise"),
+            Type.Literal("debug"),
+          ]),
+        ),
+        sessionGroup: Type.Optional(Type.String({ minLength: 1 })),
       },
       { additionalProperties: false },
     ),
@@ -65,9 +88,27 @@ const WatcherSchema = Type.Object(
       { additionalProperties: false },
     ),
     fireOnce: Type.Optional(Type.Boolean()),
+    deliveryTargets: Type.Optional(
+      Type.Array(
+        Type.Object(
+          {
+            channel: Type.String({ minLength: 1 }),
+            to: Type.String({ minLength: 1 }),
+            accountId: Type.Optional(Type.String({ minLength: 1 })),
+          },
+          { additionalProperties: false },
+        ),
+        { minItems: 1 },
+      ),
+    ),
     metadata: Type.Optional(Type.Record(Type.String(), Type.String())),
   },
-  { additionalProperties: false },
+  {
+    additionalProperties: false,
+    $defs: {
+      templateValue: TemplateValueSchema,
+    },
+  },
 );
 
 function scanNoCodeLike(input: unknown, parentKey = ""): void {
@@ -95,8 +136,8 @@ function scanNoCodeLike(input: unknown, parentKey = ""): void {
 export function validateWatcherDefinition(input: unknown): WatcherDefinition {
   scanNoCodeLike(input);
 
-  if (!Value.Check(WatcherSchema, input)) {
-    const first = [...Value.Errors(WatcherSchema, input)][0];
+  if (!Value.Check(WatcherSchema, [TemplateValueSchema], input)) {
+    const first = [...Value.Errors(WatcherSchema, [TemplateValueSchema], input)][0];
     const where = first?.path || "(root)";
     const why = first?.message || "Invalid watcher definition";
     throw new Error(`Invalid watcher definition at ${where}: ${why}`);
