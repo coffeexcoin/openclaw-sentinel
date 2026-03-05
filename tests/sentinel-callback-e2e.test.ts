@@ -247,20 +247,33 @@ function buildSentinelCallbackPayload(args: {
 }) {
   return {
     type: "sentinel.callback",
+    version: "2",
     intent: "price_alert",
+    actionable: true,
     watcher: {
       id: args.watcherId,
-      eventName: "price_alert",
       skillId: "skills.sentinel.e2e",
+      eventName: "price_alert",
+      intent: "price_alert",
+      strategy: "http-poll",
+      endpoint: "https://api.example.com/price",
+      match: "all",
+      conditions: [{ path: "price", op: "gt", value: 50000 }],
+      fireOnce: false,
+      tags: [],
     },
     trigger: {
-      firedAt: args.firedAt,
+      matchedAt: args.firedAt,
+      dedupeKey: `price-${args.watcherId}-${Date.now()}`,
       priority: "high",
-      source: "watcher",
     },
     context: {
       currentPrice: args.currentPrice,
       threshold: 50_000,
+      direction: args.direction,
+    },
+    payload: {
+      price: args.currentPrice,
       direction: args.direction,
     },
     source: {
