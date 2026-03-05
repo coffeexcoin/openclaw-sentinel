@@ -43,6 +43,35 @@ describe("tool schema validation", () => {
     expect(Value.Check(SentinelToolValidationSchema, [TemplateValueSchema], bad)).toBe(false);
   });
 
+  it("accepts valid create payload with evm-call strategy", () => {
+    const evmCreate = {
+      action: "create",
+      watcher: {
+        id: "evm-test",
+        skillId: "skills.test",
+        enabled: true,
+        strategy: "evm-call",
+        endpoint: "https://rpc.example.com",
+        intervalMs: 15000,
+        match: "all",
+        conditions: [{ path: "result.0", op: "gt", value: "0" }],
+        fire: {
+          webhookPath: "/hooks/sentinel",
+          eventName: "balance_changed",
+          payloadTemplate: { balance: "${payload.result.0}" },
+        },
+        retry: { maxRetries: 3, baseMs: 100, maxMs: 2000 },
+        evmCall: {
+          to: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+          signature: "function balanceOf(address) view returns (uint256)",
+          args: ["0x0000000000000000000000000000000000000001"],
+        },
+      },
+    };
+    expect(Value.Check(SentinelToolSchema, [TemplateValueSchema], evmCreate)).toBe(true);
+    expect(Value.Check(SentinelToolValidationSchema, [TemplateValueSchema], evmCreate)).toBe(true);
+  });
+
   it("keeps strict action-specific validation for required fields", () => {
     expect(
       Value.Check(SentinelToolSchema, [TemplateValueSchema], { action: "list", id: "x" }),

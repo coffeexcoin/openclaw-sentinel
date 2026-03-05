@@ -44,7 +44,7 @@ The module also exports `register`/`activate` as bound aliases of the plugin's r
 ### Core Pipeline
 
 ```
-WatcherDefinition → Strategy (poll/ws/sse) → Payload
+WatcherDefinition → Strategy (poll/ws/sse/evm-call) → Payload
     → Evaluator (condition matching) → CallbackEnvelope
     → WatcherManager.dispatch() → Gateway webhook
     → /hooks/sentinel route → Hook session → LLM response
@@ -53,20 +53,20 @@ WatcherDefinition → Strategy (poll/ws/sse) → Payload
 
 ### Key Modules
 
-| File                  | Purpose                                                                                                                                                                                 |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `watcherManager.ts`   | Lifecycle management: create/enable/disable/remove watchers, run strategy loops, dispatch envelopes, manage state persistence                                                           |
-| `tool.ts`             | `sentinel_control` tool registration with action routing (create/enable/disable/remove/status/list)                                                                                     |
-| `toolSchema.ts`       | TypeBox schema for the `sentinel_control` tool input                                                                                                                                    |
-| `evaluator.ts`        | Condition evaluation engine (11 operators). Uses RE2/re2-wasm for safe regex (`matches` operator)                                                                                       |
-| `validator.ts`        | Watcher definition validation: TypeBox schema check + code-like field/value rejection (`scanNoCodeLike`)                                                                                |
-| `callbackEnvelope.ts` | Builds the `sentinel.callback` envelope with intent, context, trigger, delivery metadata                                                                                                |
-| `template.ts`         | Non-Turing-complete `${placeholder}` substitution (restricted to `watcher.*`, `event.*`, `payload.*`, `timestamp`)                                                                      |
-| `configSchema.ts`     | TypeBox schema for plugin config with defaults                                                                                                                                          |
-| `limits.ts`           | Resource limit enforcement (max watchers, per-skill limits, interval floor, host allowlist)                                                                                             |
-| `stateStore.ts`       | JSON file persistence at `~/.openclaw/sentinel-state.json`                                                                                                                              |
-| `strategies/`         | Strategy implementations: `httpPoll.ts`, `httpLongPoll.ts`, `websocket.ts`, `sse.ts` — all return a `StrategyHandler` (takes watcher + onPayload/onError callbacks, returns cleanup fn) |
-| `cli.ts`              | Minimal CLI entry point for `list/status/enable/disable/audit`                                                                                                                          |
+| File                  | Purpose                                                                                                                                                                                               |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `watcherManager.ts`   | Lifecycle management: create/enable/disable/remove watchers, run strategy loops, dispatch envelopes, manage state persistence                                                                         |
+| `tool.ts`             | `sentinel_control` tool registration with action routing (create/enable/disable/remove/status/list)                                                                                                   |
+| `toolSchema.ts`       | TypeBox schema for the `sentinel_control` tool input                                                                                                                                                  |
+| `evaluator.ts`        | Condition evaluation engine (11 operators). Uses RE2/re2-wasm for safe regex (`matches` operator)                                                                                                     |
+| `validator.ts`        | Watcher definition validation: TypeBox schema check + code-like field/value rejection (`scanNoCodeLike`)                                                                                              |
+| `callbackEnvelope.ts` | Builds the `sentinel.callback` envelope with intent, context, trigger, delivery metadata                                                                                                              |
+| `template.ts`         | Non-Turing-complete `${placeholder}` substitution (restricted to `watcher.*`, `event.*`, `payload.*`, `timestamp`)                                                                                    |
+| `configSchema.ts`     | TypeBox schema for plugin config with defaults                                                                                                                                                        |
+| `limits.ts`           | Resource limit enforcement (max watchers, per-skill limits, interval floor, host allowlist)                                                                                                           |
+| `stateStore.ts`       | JSON file persistence at `~/.openclaw/sentinel-state.json`                                                                                                                                            |
+| `strategies/`         | Strategy implementations: `httpPoll.ts`, `httpLongPoll.ts`, `websocket.ts`, `sse.ts`, `evmCall.ts` — all return a `StrategyHandler` (takes watcher + onPayload/onError callbacks, returns cleanup fn) |
+| `cli.ts`              | Minimal CLI entry point for `list/status/enable/disable/audit`                                                                                                                                        |
 
 ### Schema Validation
 
