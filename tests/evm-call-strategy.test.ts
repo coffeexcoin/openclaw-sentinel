@@ -142,6 +142,41 @@ describe("evmCallStrategy", () => {
     globalThis.fetch = originalFetch;
   });
 
+  it("decodes multi-return with nested tuple and BigInt fields", async () => {
+    const watcher: WatcherDefinition = {
+      ...baseWatcher,
+      intervalMs: 999999,
+      evmCall: {
+        to: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+        signature: "function getInfo() view returns (uint256 id, (address token, uint256 amount))",
+        args: [],
+      },
+    };
+
+    const hex =
+      "0x" +
+      "000000000000000000000000000000000000000000000000000000000000002a" + // id=42
+      "000000000000000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" + // token
+      "00000000000000000000000000000000000000000000000000000000000003e8"; // amount=1000
+
+    globalThis.fetch = vi.fn().mockResolvedValueOnce(mockFetchResponse(hex)) as any;
+
+    const onPayload = vi.fn();
+    const stop = await evmCallStrategy(watcher, onPayload, vi.fn());
+
+    await vi.waitFor(() => expect(onPayload).toHaveBeenCalledTimes(1));
+    await stop();
+
+    const payload = onPayload.mock.calls[0][0];
+    // Multi-return: array with scalar + object
+    expect(payload.result).toHaveLength(2);
+    expect(payload.result[0]).toBe("42"); // BigInt → string
+    expect(payload.result[1].token).toBe("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    expect(payload.result[1].amount).toBe("1000"); // nested BigInt → string
+
+    globalThis.fetch = originalFetch;
+  });
+
   it("calls onError for invalid ABI signature", async () => {
     const watcher: WatcherDefinition = {
       ...baseWatcher,
