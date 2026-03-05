@@ -31,6 +31,16 @@ const ConditionSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const EvmCallSchema = Type.Object(
+  {
+    to: Type.String({ pattern: "^0x[0-9a-fA-F]{40}$" }),
+    signature: Type.String({ minLength: 1 }),
+    args: Type.Optional(Type.Array(Type.Unknown())),
+    blockTag: Type.Optional(Type.String({ minLength: 1 })),
+  },
+  { additionalProperties: false },
+);
+
 export const WatcherSchema = Type.Object(
   {
     id: Type.String({ pattern: WATCHER_ID_PATTERN, maxLength: 128 }),
@@ -41,6 +51,7 @@ export const WatcherSchema = Type.Object(
       Type.Literal("websocket"),
       Type.Literal("sse"),
       Type.Literal("http-long-poll"),
+      Type.Literal("evm-call"),
     ]),
     endpoint: Type.String({ minLength: 1 }),
     method: Type.Optional(Type.Union([Type.Literal("GET"), Type.Literal("POST")])),
@@ -102,6 +113,7 @@ export const WatcherSchema = Type.Object(
         { minItems: 1 },
       ),
     ),
+    evmCall: Type.Optional(EvmCallSchema),
     metadata: Type.Optional(Type.Record(Type.String(), Type.String())),
     tags: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { maxItems: 10 })),
   },
@@ -113,10 +125,12 @@ export const WatcherSchema = Type.Object(
   },
 );
 
+const CODE_SCAN_EXEMPT_PATHS = new Set(["evmCall.signature"]);
+
 function scanNoCodeLike(input: unknown, parentKey = ""): void {
   if (input === null || input === undefined) return;
   if (typeof input === "string") {
-    if (codeyValuePattern.test(input)) {
+    if (!CODE_SCAN_EXEMPT_PATHS.has(parentKey) && codeyValuePattern.test(input)) {
       throw new Error(`Code-like value rejected at ${parentKey || "<root>"}`);
     }
     return;
@@ -154,6 +168,22 @@ export function validateWatcherDefinition(input: unknown): WatcherDefinition {
   }
 
   const watcher = input as WatcherDefinition;
+
+  if (watcher.strategy === "evm-call") {
+    if (!watcher.evmCall) {
+      throw new Error("Invalid watcher definition: evm-call strategy requires evmCall config");
+    }
+    if (watcher.method || watcher.body) {
+      throw new Error(
+        "Invalid watcher definition: evm-call strategy does not support method/body (use evmCall config)",
+      );
+    }
+  } else if (watcher.evmCall) {
+    throw new Error(
+      `Invalid watcher definition: evmCall config is only valid with evm-call strategy, not ${watcher.strategy}`,
+    );
+  }
+
   return {
     ...watcher,
     fire: {

@@ -209,10 +209,11 @@ It **does not** execute user-authored code from watcher definitions.
   - actions: `create` (`add`), `enable`, `disable`, `remove` (`delete`), `status` (`get`), `list`
 - Strict schema validation (TypeBox, strict object checks) + code-like field/value rejection
 - Strategies:
-  - `http-poll`
+  - `http-poll` (supports POST with custom body for JSON-RPC etc.)
   - `websocket`
   - `sse`
   - `http-long-poll`
+  - `evm-call` — smart contract state polling via `eth_call` with ABI encoding/decoding
 - Condition operators:
   - `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `exists`, `absent`, `contains`, `matches`, `changed`
 - Match mode: `all` / `any`

@@ -118,6 +118,7 @@ const WatcherSchema = Type.Object(
         Type.Literal("websocket"),
         Type.Literal("sse"),
         Type.Literal("http-long-poll"),
+        Type.Literal("evm-call"),
       ],
       { description: "Connection strategy" },
     ),
@@ -151,6 +152,33 @@ const WatcherSchema = Type.Object(
         description:
           "Optional notification delivery targets. Defaults to the current chat/session context when omitted.",
       }),
+    ),
+    evmCall: Type.Optional(
+      Type.Object(
+        {
+          to: Type.String({
+            description: "Contract address (0x-prefixed, 20-byte hex)",
+          }),
+          signature: Type.String({
+            description:
+              'Human-readable ABI signature, e.g. "function balanceOf(address) view returns (uint256)"',
+          }),
+          args: Type.Optional(
+            Type.Array(Type.Unknown(), {
+              description: "Call arguments matching the ABI signature parameters",
+            }),
+          ),
+          blockTag: Type.Optional(
+            Type.String({
+              description: 'Block tag for eth_call (default "latest")',
+            }),
+          ),
+        },
+        {
+          additionalProperties: false,
+          description: "EVM contract call config (required for evm-call strategy)",
+        },
+      ),
     ),
     metadata: Type.Optional(
       Type.Record(Type.String(), Type.String(), { description: "Arbitrary key-value metadata" }),

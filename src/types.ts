@@ -1,4 +1,11 @@
-export type Strategy = "http-poll" | "websocket" | "sse" | "http-long-poll";
+export type Strategy = "http-poll" | "websocket" | "sse" | "http-long-poll" | "evm-call";
+
+export interface EvmCallConfig {
+  to: string;
+  signature: string;
+  args?: unknown[];
+  blockTag?: string;
+}
 export type Operator =
   | "eq"
   | "neq"
@@ -117,6 +124,7 @@ export interface WatcherDefinition {
   retry: RetryPolicy;
   fireOnce?: boolean;
   deliveryTargets?: DeliveryTarget[];
+  evmCall?: EvmCallConfig;
   metadata?: Record<string, string>;
   tags?: string[];
 }

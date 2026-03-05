@@ -320,7 +320,119 @@ Use `fireOnce: true` to dispatch once and auto-disable:
 
 ---
 
-## 8) Runtime control actions
+## 8) HTTP POST Polling (JSON-RPC)
+
+The `http-poll` strategy supports `method: "POST"` and `body` fields for endpoints that require POST requests, such as JSON-RPC APIs. This works with any JSON-RPC endpoint — EVM, Solana, Substrate, etc.
+
+```json
+{
+  "action": "create",
+  "watcher": {
+    "id": "eth-block-watch",
+    "skillId": "skills.chain",
+    "enabled": true,
+    "strategy": "http-poll",
+    "endpoint": "https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY",
+    "method": "POST",
+    "headers": { "content-type": "application/json" },
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_blockNumber\",\"params\":[]}",
+    "intervalMs": 15000,
+    "match": "all",
+    "conditions": [{ "path": "result", "op": "exists" }],
+    "fire": {
+      "webhookPath": "/hooks/sentinel",
+      "eventName": "new_block",
+      "payloadTemplate": {
+        "event": "${event.name}",
+        "blockHex": "${payload.result}",
+        "ts": "${timestamp}"
+      }
+    },
+    "retry": { "maxRetries": 5, "baseMs": 500, "maxMs": 15000 }
+  }
+}
+```
+
+Note: `allowedHosts` must include your RPC endpoint hostname. The `body` field is a static string — for dynamic call parameters, use the `evm-call` strategy instead.
+
+---
+
+## 9) EVM Contract State Monitoring (`evm-call`)
+
+The `evm-call` strategy provides high-level smart contract state polling. Instead of manually constructing JSON-RPC bodies, you provide a contract address and human-readable ABI signature — Sentinel handles encoding, calling, decoding, and BigInt-to-string conversion automatically.
+
+```json
+{
+  "action": "create",
+  "watcher": {
+    "id": "usdc-whale-balance",
+    "skillId": "skills.defi",
+    "enabled": true,
+    "strategy": "evm-call",
+    "endpoint": "https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY",
+    "intervalMs": 30000,
+    "match": "all",
+    "conditions": [{ "path": "result.0", "op": "gt", "value": "1000000000000" }],
+    "fire": {
+      "webhookPath": "/hooks/sentinel",
+      "eventName": "whale_balance_threshold",
+      "intent": "defi_balance_alert",
+      "payloadTemplate": {
+        "event": "${event.name}",
+        "balance": "${payload.result.0}",
+        "contract": "${payload.to}",
+        "ts": "${timestamp}"
+      }
+    },
+    "retry": { "maxRetries": 5, "baseMs": 500, "maxMs": 15000 },
+    "evmCall": {
+      "to": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      "signature": "function balanceOf(address) view returns (uint256)",
+      "args": ["0x47ac0Fb4F2D84898e4D9E7b4DaB3C24507a6D503"]
+    }
+  }
+}
+```
+
+### Decoded payload structure
+
+The strategy decodes the `eth_call` response and delivers a structured payload:
+
+```json
+{
+  "result": ["1234567890123456789"],
+  "raw": "0x000000000000000000000000000000000000000000000000112210f47de98115",
+  "blockTag": "latest",
+  "to": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+  "signature": "function balanceOf(address) view returns (uint256)"
+}
+```
+
+- `result` is always an array. Single return values are wrapped; multiple return values are decoded in order.
+- BigInt values (uint256, int256, etc.) are converted to strings to preserve precision and JSON safety.
+- Tuple/struct return values are decoded as objects with named keys.
+- Conditions target decoded values via `result.0`, `result.1`, etc.
+- `blockTag` defaults to `"latest"` but can be overridden (e.g., `"0x1234"` for a specific block).
+
+### `evmCall` config
+
+| Field       | Required | Description                                                                     |
+| ----------- | -------- | ------------------------------------------------------------------------------- |
+| `to`        | Yes      | Contract address (0x-prefixed, 20-byte hex)                                     |
+| `signature` | Yes      | Human-readable ABI, e.g. `"function balanceOf(address) view returns (uint256)"` |
+| `args`      | No       | Call arguments matching signature parameters                                    |
+| `blockTag`  | No       | Block tag for eth_call (default `"latest"`)                                     |
+
+### Notes
+
+- `allowedHosts` must include your RPC endpoint hostname.
+- `redirect: "error"` is enforced (same as all HTTP strategies).
+- `method`/`body` fields are not allowed with `evm-call` — the strategy constructs the JSON-RPC call automatically.
+- ABI signatures use human-readable format from the [abitype](https://abitype.dev) spec.
+
+---
+
+## 10) Runtime control actions
 
 Check status:
 
@@ -342,7 +454,7 @@ Remove:
 
 ---
 
-## 9) Skill integration pattern
+## 11) Skill integration pattern
 
 Typical skill flow:
 

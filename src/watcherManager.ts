@@ -8,6 +8,7 @@ import { httpPollStrategy } from "./strategies/httpPoll.js";
 import { httpLongPollStrategy } from "./strategies/httpLongPoll.js";
 import { sseStrategy } from "./strategies/sse.js";
 import { websocketStrategy } from "./strategies/websocket.js";
+import { evmCallStrategy } from "./strategies/evmCall.js";
 import {
   DEFAULT_SENTINEL_WEBHOOK_PATH,
   DeliveryTarget,
@@ -203,6 +204,7 @@ export class WatcherManager {
         websocket: websocketStrategy,
         sse: sseStrategy,
         "http-long-poll": httpLongPollStrategy,
+        "evm-call": evmCallStrategy,
       } as const
     )[watcher.strategy];
 
