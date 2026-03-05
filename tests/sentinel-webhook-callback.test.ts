@@ -36,14 +36,44 @@ function makeRes(): MockRes {
   };
 }
 
-function extractJsonBlock(text: string, marker: string, nextMarker?: string) {
+function extractJsonBlock(text: string, marker: string) {
   const markerIndex = text.indexOf(marker);
   if (markerIndex < 0) return undefined;
   const afterMarker = text.slice(markerIndex + marker.length);
-  const block = nextMarker ? afterMarker.split(nextMarker)[0] : afterMarker;
-  const trimmed = block.trim();
+  const trimmed = afterMarker.trim();
   if (!trimmed) return undefined;
   return JSON.parse(trimmed);
+}
+
+function makeEnvelope(overrides: Record<string, unknown> = {}) {
+  return {
+    type: "sentinel.callback",
+    version: "2",
+    intent: "test_event",
+    actionable: true,
+    watcher: {
+      id: "test-watcher",
+      skillId: "skills.test",
+      eventName: "test_event",
+      intent: "test_event",
+      strategy: "http-poll",
+      endpoint: "https://example.com/api",
+      match: "all",
+      conditions: [],
+      fireOnce: false,
+      tags: [],
+    },
+    trigger: {
+      matchedAt: new Date().toISOString(),
+      dedupeKey: "test-dedupe-" + Math.random().toString(36).slice(2, 10),
+      priority: "normal",
+    },
+    context: {},
+    payload: {},
+    deliveryTargets: [],
+    source: { plugin: "openclaw-sentinel", route: "/hooks/sentinel" },
+    ...overrides,
+  };
 }
 
 function createApiMocks() {
@@ -96,14 +126,29 @@ describe("sentinel webhook callback route", () => {
     const route = mocks.registerHttpRoute.mock.calls[0][0];
     const req = makeReq(
       "POST",
-      JSON.stringify({
-        payload: { price: 5050 },
-        watcherId: "btc-price",
-        eventName: "price_alert",
-        skillId: "skills.alerts",
-        matchedAt: "2026-03-04T14:12:00.000Z",
-        dedupeKey: "abc-123",
-      }),
+      JSON.stringify(
+        makeEnvelope({
+          watcher: {
+            id: "btc-price",
+            skillId: "skills.alerts",
+            eventName: "price_alert",
+            intent: "price_alert",
+            strategy: "http-poll",
+            endpoint: "https://example.com/btc",
+            match: "all",
+            conditions: [],
+            fireOnce: false,
+            tags: [],
+          },
+          trigger: {
+            matchedAt: "2026-03-04T14:12:00.000Z",
+            dedupeKey: "abc-123",
+            priority: "normal",
+          },
+          payload: { price: 5050 },
+          source: { route: "/hooks/sentinel", plugin: "openclaw-sentinel" },
+        }),
+      ),
     );
     const res = makeRes();
 
@@ -116,17 +161,18 @@ describe("sentinel webhook callback route", () => {
       contextKey: "cron:sentinel-callback",
     });
     expect(text).toContain("SENTINEL_TRIGGER:");
-    expect(text).toContain("SENTINEL_ENVELOPE_JSON:");
+    expect(text).toContain("SENTINEL_CALLBACK_JSON:");
 
-    const envelopeJson = String(text).split("SENTINEL_ENVELOPE_JSON:\n")[1];
-    const envelope = JSON.parse(envelopeJson);
-    expect(envelope).toMatchObject({
-      watcherId: "btc-price",
-      eventName: "price_alert",
-      skillId: "skills.alerts",
-      matchedAt: "2026-03-04T14:12:00.000Z",
-      dedupeKey: "abc-123",
-      correlationId: "abc-123",
+    const callbackJson = extractJsonBlock(String(text), "SENTINEL_CALLBACK_JSON:\n");
+    expect(callbackJson).toMatchObject({
+      watcher: {
+        id: "btc-price",
+        skillId: "skills.alerts",
+        eventName: "price_alert",
+      },
+      trigger: {
+        dedupeKey: "abc-123",
+      },
       source: { route: "/hooks/sentinel", plugin: "openclaw-sentinel" },
       payload: { price: 5050 },
     });
@@ -150,48 +196,48 @@ describe("sentinel webhook callback route", () => {
     const route = mocks.registerHttpRoute.mock.calls[0][0];
     const req = makeReq(
       "POST",
-      JSON.stringify({
-        watcher: {
-          id: "ops-watch",
-          skillId: "skills.ops",
-          eventName: "service_degraded",
-          intent: "incident_triage",
-          strategy: "http-poll",
-          endpoint: "https://status.example.com/health",
-          match: "all",
-          conditions: [{ path: "status", op: "eq", value: "degraded" }],
-          fireOnce: true,
-        },
-        trigger: {
-          matchedAt: "2026-03-04T15:00:00.000Z",
-          dedupeKey: "trigger-ctx-1",
-          priority: "critical",
-        },
-        context: { service: "payments", region: "us-east-1" },
-        payload: { status: "degraded", latencyMs: 820 },
-        deliveryTargets: [{ channel: "telegram", to: "5613673222" }],
-        deliveryContext: {
-          sessionKey: "agent:main:telegram:direct:5613673222",
-          currentChat: { channel: "telegram", to: "5613673222" },
-        },
-        source: { plugin: "openclaw-sentinel", route: "/hooks/sentinel" },
-      }),
+      JSON.stringify(
+        makeEnvelope({
+          watcher: {
+            id: "ops-watch",
+            skillId: "skills.ops",
+            eventName: "service_degraded",
+            intent: "incident_triage",
+            strategy: "http-poll",
+            endpoint: "https://status.example.com/health",
+            match: "all",
+            conditions: [{ path: "status", op: "eq", value: "degraded" }],
+            fireOnce: true,
+            tags: [],
+          },
+          trigger: {
+            matchedAt: "2026-03-04T15:00:00.000Z",
+            dedupeKey: "trigger-ctx-1",
+            priority: "critical",
+          },
+          context: { service: "payments", region: "us-east-1" },
+          payload: { status: "degraded", latencyMs: 820 },
+          deliveryTargets: [{ channel: "telegram", to: "5613673222" }],
+          deliveryContext: {
+            sessionKey: "agent:main:telegram:direct:5613673222",
+            currentChat: { channel: "telegram", to: "5613673222" },
+          },
+          source: { plugin: "openclaw-sentinel", route: "/hooks/sentinel" },
+        }),
+      ),
     );
     const res = makeRes();
 
     await route.handler(req as any, res as any);
 
     const [text] = mocks.enqueueSystemEvent.mock.calls[0];
-    expect(String(text)).toContain("Callback handling requirements:");
+    expect(String(text)).toContain("sentinel_act");
+    expect(String(text)).toContain("sentinel_escalate");
     expect(String(text)).toContain("Never emit control tokens");
 
-    const callbackContext = extractJsonBlock(
-      String(text),
-      "SENTINEL_CALLBACK_CONTEXT_JSON:\n",
-      "SENTINEL_ENVELOPE_JSON:\n",
-    );
+    const callbackJson = extractJsonBlock(String(text), "SENTINEL_CALLBACK_JSON:\n");
 
-    expect(callbackContext).toMatchObject({
+    expect(callbackJson).toMatchObject({
       watcher: {
         id: "ops-watch",
         skillId: "skills.ops",
@@ -210,10 +256,6 @@ describe("sentinel webhook callback route", () => {
       },
       source: { plugin: "openclaw-sentinel", route: "/hooks/sentinel" },
       deliveryTargets: [{ channel: "telegram", to: "5613673222" }],
-      deliveryContext: {
-        sessionKey: "agent:main:telegram:direct:5613673222",
-        currentChat: { channel: "telegram", to: "5613673222" },
-      },
       context: { service: "payments", region: "us-east-1" },
       payload: { status: "degraded", latencyMs: 820 },
     });
@@ -230,11 +272,23 @@ describe("sentinel webhook callback route", () => {
     const route = mocks.registerHttpRoute.mock.calls[0][0];
     const req = makeReq(
       "POST",
-      JSON.stringify({
-        watcherId: "eth-price",
-        eventName: "price_alert",
-        hookSessionGroup: "portfolio-risk",
-      }),
+      JSON.stringify(
+        makeEnvelope({
+          watcher: {
+            id: "eth-price",
+            skillId: "skills.alerts",
+            eventName: "price_alert",
+            intent: "price_alert",
+            strategy: "http-poll",
+            endpoint: "https://example.com/eth",
+            match: "all",
+            conditions: [],
+            fireOnce: false,
+            tags: [],
+          },
+          hookSessionGroup: "portfolio-risk",
+        }),
+      ),
     );
     const res = makeRes();
 
@@ -255,7 +309,25 @@ describe("sentinel webhook callback route", () => {
     plugin.register(mocks.api);
 
     const route = mocks.registerHttpRoute.mock.calls[0][0];
-    const req = makeReq("POST", JSON.stringify({ watcherId: "w-global-test", eventName: "evt" }));
+    const req = makeReq(
+      "POST",
+      JSON.stringify(
+        makeEnvelope({
+          watcher: {
+            id: "w-global-test",
+            skillId: "skills.test",
+            eventName: "evt",
+            intent: "evt",
+            strategy: "http-poll",
+            endpoint: "https://example.com",
+            match: "all",
+            conditions: [],
+            fireOnce: false,
+            tags: [],
+          },
+        }),
+      ),
+    );
     const res = makeRes();
 
     await route.handler(req as any, res as any);
@@ -276,7 +348,25 @@ describe("sentinel webhook callback route", () => {
     plugin.register(mocks.api);
 
     const route = mocks.registerHttpRoute.mock.calls[0][0];
-    const req = makeReq("POST", JSON.stringify({ watcherId: "w-priority", eventName: "evt" }));
+    const req = makeReq(
+      "POST",
+      JSON.stringify(
+        makeEnvelope({
+          watcher: {
+            id: "w-priority",
+            skillId: "skills.test",
+            eventName: "evt",
+            intent: "evt",
+            strategy: "http-poll",
+            endpoint: "https://example.com",
+            match: "all",
+            conditions: [],
+            fireOnce: false,
+            tags: [],
+          },
+        }),
+      ),
+    );
     const res = makeRes();
 
     await route.handler(req as any, res as any);
@@ -302,13 +392,28 @@ describe("sentinel webhook callback route", () => {
     const route = mocks.registerHttpRoute.mock.calls[0][0];
     const req = makeReq(
       "POST",
-      JSON.stringify({
-        watcherId: "btc-price",
-        eventName: "price_alert",
-        matchedAt: "2026-03-04T14:12:00.000Z",
-        dedupeKey: "relay-1",
-        deliveryTargets: [{ channel: "telegram", to: "5613673222" }],
-      }),
+      JSON.stringify(
+        makeEnvelope({
+          watcher: {
+            id: "btc-price",
+            skillId: "skills.alerts",
+            eventName: "price_alert",
+            intent: "price_alert",
+            strategy: "http-poll",
+            endpoint: "https://example.com/btc",
+            match: "all",
+            conditions: [],
+            fireOnce: false,
+            tags: [],
+          },
+          trigger: {
+            matchedAt: "2026-03-04T14:12:00.000Z",
+            dedupeKey: "relay-1",
+            priority: "normal",
+          },
+          deliveryTargets: [{ channel: "telegram", to: "5613673222" }],
+        }),
+      ),
     );
     const res = makeRes();
 
@@ -350,12 +455,28 @@ describe("sentinel webhook callback route", () => {
     await route.handler(
       makeReq(
         "POST",
-        JSON.stringify({
-          watcherId: "btc-price",
-          eventName: "price_alert",
-          dedupeKey: "hb-guard-1",
-          deliveryTargets: [{ channel: "telegram", to: "5613673222" }],
-        }),
+        JSON.stringify(
+          makeEnvelope({
+            watcher: {
+              id: "btc-price",
+              skillId: "skills.alerts",
+              eventName: "price_alert",
+              intent: "price_alert",
+              strategy: "http-poll",
+              endpoint: "https://example.com/btc",
+              match: "all",
+              conditions: [],
+              fireOnce: false,
+              tags: [],
+            },
+            trigger: {
+              matchedAt: new Date().toISOString(),
+              dedupeKey: "hb-guard-1",
+              priority: "normal",
+            },
+            deliveryTargets: [{ channel: "telegram", to: "5613673222" }],
+          }),
+        ),
       ) as any,
       makeRes() as any,
     );
@@ -367,7 +488,7 @@ describe("sentinel webhook callback route", () => {
 
     expect(mocks.sendMessageTelegram).toHaveBeenCalledTimes(1);
     const [, fallbackMessage] = mocks.sendMessageTelegram.mock.calls[0];
-    expect(String(fallbackMessage)).toContain("Sentinel alert: price_alert");
+    expect(String(fallbackMessage)).toContain("Sentinel callback: price_alert");
     expect(String(fallbackMessage)).not.toContain("NO_REPLY");
     expect(String(fallbackMessage)).not.toContain("HEARTBEAT_OK");
   });
@@ -387,12 +508,28 @@ describe("sentinel webhook callback route", () => {
     await route.handler(
       makeReq(
         "POST",
-        JSON.stringify({
-          watcherId: "empty-variant",
-          eventName: "service_degraded",
-          dedupeKey: "empty-out-1",
-          deliveryTargets: [{ channel: "telegram", to: "5613673222" }],
-        }),
+        JSON.stringify(
+          makeEnvelope({
+            watcher: {
+              id: "empty-variant",
+              skillId: "skills.ops",
+              eventName: "service_degraded",
+              intent: "service_degraded",
+              strategy: "http-poll",
+              endpoint: "https://example.com",
+              match: "all",
+              conditions: [],
+              fireOnce: false,
+              tags: [],
+            },
+            trigger: {
+              matchedAt: new Date().toISOString(),
+              dedupeKey: "empty-out-1",
+              priority: "normal",
+            },
+            deliveryTargets: [{ channel: "telegram", to: "5613673222" }],
+          }),
+        ),
       ) as any,
       makeRes() as any,
     );
@@ -404,7 +541,7 @@ describe("sentinel webhook callback route", () => {
 
     expect(mocks.sendMessageTelegram).toHaveBeenCalledTimes(1);
     const [, fallbackMessage] = mocks.sendMessageTelegram.mock.calls[0];
-    expect(String(fallbackMessage)).toContain("Sentinel alert: service_degraded");
+    expect(String(fallbackMessage)).toContain("Sentinel callback: service_degraded");
   });
 
   it("uses callback deliveryContext as fallback relay target when deliveryTargets are absent", async () => {
@@ -419,14 +556,32 @@ describe("sentinel webhook callback route", () => {
     await route.handler(
       makeReq(
         "POST",
-        JSON.stringify({
-          watcherId: "from-context",
-          dedupeKey: "context-1",
-          deliveryContext: {
-            sessionKey: "agent:main:telegram:direct:5613673222",
-            currentChat: { channel: "telegram", to: "5613673222" },
-          },
-        }),
+        JSON.stringify(
+          makeEnvelope({
+            watcher: {
+              id: "from-context",
+              skillId: "skills.test",
+              eventName: "test_event",
+              intent: "test_event",
+              strategy: "http-poll",
+              endpoint: "https://example.com",
+              match: "all",
+              conditions: [],
+              fireOnce: false,
+              tags: [],
+            },
+            trigger: {
+              matchedAt: new Date().toISOString(),
+              dedupeKey: "context-1",
+              priority: "normal",
+            },
+            deliveryTargets: [],
+            deliveryContext: {
+              sessionKey: "agent:main:telegram:direct:5613673222",
+              currentChat: { channel: "telegram", to: "5613673222" },
+            },
+          }),
+        ),
       ) as any,
       makeRes() as any,
     );
@@ -455,12 +610,28 @@ describe("sentinel webhook callback route", () => {
     await route.handler(
       makeReq(
         "POST",
-        JSON.stringify({
-          watcherId: "btc-price",
-          eventName: "price_alert",
-          dedupeKey: "timeout-1",
-          deliveryTargets: [{ channel: "telegram", to: "5613673222" }],
-        }),
+        JSON.stringify(
+          makeEnvelope({
+            watcher: {
+              id: "btc-price",
+              skillId: "skills.alerts",
+              eventName: "price_alert",
+              intent: "price_alert",
+              strategy: "http-poll",
+              endpoint: "https://example.com/btc",
+              match: "all",
+              conditions: [],
+              fireOnce: false,
+              tags: [],
+            },
+            trigger: {
+              matchedAt: new Date().toISOString(),
+              dedupeKey: "timeout-1",
+              priority: "normal",
+            },
+            deliveryTargets: [{ channel: "telegram", to: "5613673222" }],
+          }),
+        ),
       ) as any,
       makeRes() as any,
     );
@@ -472,7 +643,7 @@ describe("sentinel webhook callback route", () => {
 
     expect(mocks.sendMessageTelegram).toHaveBeenCalledTimes(1);
     const [, fallbackMessage] = mocks.sendMessageTelegram.mock.calls[0];
-    expect(String(fallbackMessage)).toContain("Sentinel alert: price_alert");
+    expect(String(fallbackMessage)).toContain("Sentinel callback: price_alert");
   });
 
   it("suppresses duplicate response contracts using dedupe key", async () => {
@@ -487,12 +658,26 @@ describe("sentinel webhook callback route", () => {
     const llmOutput = mocks.hooks.get("llm_output");
     const route = mocks.registerHttpRoute.mock.calls[0][0];
 
-    const payload = {
-      watcherId: "btc-price",
-      eventName: "price_alert",
-      dedupeKey: "dupe-1",
+    const payload = makeEnvelope({
+      watcher: {
+        id: "btc-price",
+        skillId: "skills.alerts",
+        eventName: "price_alert",
+        intent: "price_alert",
+        strategy: "http-poll",
+        endpoint: "https://example.com/btc",
+        match: "all",
+        conditions: [],
+        fireOnce: false,
+        tags: [],
+      },
+      trigger: {
+        matchedAt: new Date().toISOString(),
+        dedupeKey: "dupe-1",
+        priority: "normal",
+      },
       deliveryTargets: [{ channel: "telegram", to: "5613673222" }],
-    };
+    });
 
     await route.handler(makeReq("POST", JSON.stringify(payload)) as any, makeRes() as any);
     const res2 = makeRes();
@@ -520,24 +705,35 @@ describe("sentinel webhook callback route", () => {
     const route = mocks.registerHttpRoute.mock.calls[0][0];
     const req = makeReq(
       "POST",
-      JSON.stringify({
-        watcherId: "huge",
-        eventName: "payload_big",
-        payload: { blob: "x".repeat(6000) },
-      }),
+      JSON.stringify(
+        makeEnvelope({
+          watcher: {
+            id: "huge",
+            skillId: "skills.test",
+            eventName: "payload_big",
+            intent: "payload_big",
+            strategy: "http-poll",
+            endpoint: "https://example.com",
+            match: "all",
+            conditions: [],
+            fireOnce: false,
+            tags: [],
+          },
+          payload: { blob: "x".repeat(6000) },
+        }),
+      ),
     );
     const res = makeRes();
 
     await route.handler(req as any, res as any);
 
     const [text] = mocks.enqueueSystemEvent.mock.calls[0];
-    const envelopeJson = String(text).split("SENTINEL_ENVELOPE_JSON:\n")[1];
-    const envelope = JSON.parse(envelopeJson);
-    expect(envelope.payload).toMatchObject({
+    const callbackJson = extractJsonBlock(String(text), "SENTINEL_CALLBACK_JSON:\n");
+    expect(callbackJson.payload).toMatchObject({
       __truncated: true,
       maxChars: 2500,
     });
-    expect(String(envelope.payload.preview)).toContain("…");
+    expect(String(callbackJson.payload.preview)).toContain("…");
     expect(res.statusCode).toBe(200);
   });
 
@@ -593,12 +789,46 @@ describe("sentinel webhook callback route", () => {
     });
 
     const route = mocks.registerHttpRoute.mock.calls[0][0];
-    const req = makeReq("POST", JSON.stringify({ eventName: "x" }));
+    const req = makeReq(
+      "POST",
+      JSON.stringify(
+        makeEnvelope({
+          watcher: {
+            id: "fail-test",
+            skillId: "skills.test",
+            eventName: "x",
+            intent: "x",
+            strategy: "http-poll",
+            endpoint: "https://example.com",
+            match: "all",
+            conditions: [],
+            fireOnce: false,
+            tags: [],
+          },
+        }),
+      ),
+    );
     const res = makeRes();
 
     await route.handler(req as any, res as any);
 
     expect(res.statusCode).toBe(500);
     expect(String(res.body)).toContain("enqueue failed");
+  });
+
+  it("rejects payloads without sentinel.callback type", async () => {
+    const mocks = createApiMocks();
+
+    const plugin = createSentinelPlugin();
+    plugin.register(mocks.api);
+
+    const route = mocks.registerHttpRoute.mock.calls[0][0];
+    const req = makeReq("POST", JSON.stringify({ watcherId: "bad", eventName: "no_type" }));
+    const res = makeRes();
+
+    await route.handler(req as any, res as any);
+
+    expect(res.statusCode).toBe(500);
+    expect(String(res.body)).toContain("Invalid sentinel callback");
   });
 });

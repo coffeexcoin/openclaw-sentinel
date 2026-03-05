@@ -43,25 +43,45 @@ export interface FireConfig {
   dedupeKeyTemplate?: string;
   notificationPayloadMode?: NotificationPayloadModeOverride;
   sessionGroup?: string;
+  operatorGoal?: string;
 }
 
 export interface SentinelCallbackEnvelope {
   type: "sentinel.callback";
-  version: "1";
+  version: "2";
   intent: string;
   actionable: true;
   watcher: {
     id: string;
     skillId: string;
     eventName: string;
+    intent: string;
+    strategy: string;
+    endpoint: string;
+    match: string;
+    conditions: Condition[];
+    fireOnce: boolean;
+    tags: string[];
   };
   trigger: {
     matchedAt: string;
     dedupeKey: string;
-    priority: "normal";
+    priority: PriorityLevel;
+    deadline?: string;
+  };
+  operatorGoal?: string;
+  hookSessionGroup?: string;
+  deliveryContext?: {
+    sessionKey?: string;
+    messageChannel?: string;
+    requesterSenderId?: string;
+    agentAccountId?: string;
+    currentChat?: DeliveryTarget;
+    deliveryTargets?: DeliveryTarget[];
   };
   context: Record<string, unknown>;
   payload: unknown;
+  deliveryTargets: DeliveryTarget[];
   source: {
     plugin: "openclaw-sentinel";
     route: string;
@@ -98,6 +118,7 @@ export interface WatcherDefinition {
   fireOnce?: boolean;
   deliveryTargets?: DeliveryTarget[];
   metadata?: Record<string, string>;
+  tags?: string[];
 }
 
 export interface WatcherRuntimeState {

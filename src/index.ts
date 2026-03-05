@@ -1,12 +1,13 @@
-import { createHash } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { sentinelConfigSchema } from "./configSchema.js";
+import { registerSentinelActionTools } from "./actionTools.js";
 import { registerSentinelControl } from "./tool.js";
 import {
   DEFAULT_SENTINEL_WEBHOOK_PATH,
   DeliveryTarget,
   HookResponseFallbackMode,
+  SentinelCallbackEnvelope,
   SentinelConfig,
 } from "./types.js";
 import { WatcherManager } from "./watcherManager.js";
@@ -23,8 +24,6 @@ const MAX_SENTINEL_PAYLOAD_JSON_CHARS = 2500;
 const SENTINEL_CALLBACK_WAKE_REASON = "cron:sentinel-callback";
 const SENTINEL_CALLBACK_CONTEXT_KEY = "cron:sentinel-callback";
 const RESERVED_CONTROL_TOKEN_PATTERN = /\b(?:NO[\s_-]*REPLY|HEARTBEAT[\s_-]*OK)\b/gi;
-const SENTINEL_EVENT_INSTRUCTION_PREFIX =
-  "SENTINEL_TRIGGER: This system event came from /hooks/sentinel. Use watcher + payload context to decide safe follow-up actions and produce a user-facing response.";
 
 const SUPPORTED_DELIVERY_CHANNELS = new Set([
   "telegram",
@@ -35,49 +34,6 @@ const SUPPORTED_DELIVERY_CHANNELS = new Set([
   "whatsapp",
   "line",
 ]);
-
-type SentinelDeliveryContext = {
-  sessionKey?: string;
-  messageChannel?: string;
-  requesterSenderId?: string;
-  agentAccountId?: string;
-  currentChat?: DeliveryTarget;
-  deliveryTargets?: DeliveryTarget[];
-};
-
-type SentinelEventEnvelope = {
-  watcherId: string | null;
-  eventName: string | null;
-  skillId?: string;
-  matchedAt: string;
-  watcher: {
-    id: string | null;
-    skillId: string | null;
-    eventName: string | null;
-    intent: string | null;
-    strategy: string | null;
-    endpoint: string | null;
-    match: string | null;
-    conditions: unknown[];
-    fireOnce: boolean | null;
-  };
-  trigger: {
-    matchedAt: string;
-    dedupeKey: string;
-    priority: string | null;
-  };
-  context: unknown;
-  payload: unknown;
-  dedupeKey: string;
-  correlationId: string;
-  hookSessionGroup?: string;
-  deliveryTargets?: DeliveryTarget[];
-  deliveryContext?: SentinelDeliveryContext;
-  source: {
-    route: string;
-    plugin: string;
-  };
-};
 
 type RelayDeliverySummary = {
   dedupeKey: string;
@@ -110,13 +66,6 @@ function asString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function asIsoString(value: unknown): string | undefined {
-  const text = asString(value);
-  if (!text) return undefined;
-  const timestamp = Date.parse(text);
-  return Number.isNaN(timestamp) ? undefined : new Date(timestamp).toISOString();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -178,15 +127,6 @@ function resolveSentinelPluginConfig(api: OpenClawPluginApi): Partial<SentinelCo
   return resolved;
 }
 
-function isDeliveryTarget(value: unknown): value is DeliveryTarget {
-  return (
-    isRecord(value) &&
-    typeof value.channel === "string" &&
-    typeof value.to === "string" &&
-    (value.accountId === undefined || typeof value.accountId === "string")
-  );
-}
-
 function normalizePath(path: string): string {
   const trimmed = path.trim();
   if (!trimmed) return DEFAULT_SENTINEL_WEBHOOK_PATH;
@@ -218,191 +158,36 @@ function clipPayloadForPrompt(value: unknown): unknown {
   };
 }
 
-function getNestedString(value: unknown, path: string[]): string | undefined {
-  let cursor: unknown = value;
-  for (const segment of path) {
-    if (!isRecord(cursor)) return undefined;
-    cursor = cursor[segment];
+function validateCallbackEnvelope(payload: Record<string, unknown>): SentinelCallbackEnvelope {
+  if (payload.type !== "sentinel.callback" || !payload.version) {
+    throw new Error("Invalid sentinel callback: missing type or version");
   }
-  return asString(cursor);
+  return payload as unknown as SentinelCallbackEnvelope;
 }
 
-function extractDeliveryContext(
-  payload: Record<string, unknown>,
-): SentinelDeliveryContext | undefined {
-  const raw = isRecord(payload.deliveryContext) ? payload.deliveryContext : undefined;
-  if (!raw) return undefined;
-
-  const sessionKey =
-    asString(raw.sessionKey) ??
-    asString(raw.sourceSessionKey) ??
-    getNestedString(raw, ["source", "sessionKey"]);
-
-  const messageChannel = asString(raw.messageChannel);
-  const requesterSenderId = asString(raw.requesterSenderId);
-  const agentAccountId = asString(raw.agentAccountId);
-
-  const currentChat = isDeliveryTarget(raw.currentChat)
-    ? raw.currentChat
-    : isDeliveryTarget(raw.deliveryTarget)
-      ? raw.deliveryTarget
-      : undefined;
-
-  const deliveryTargets = Array.isArray(raw.deliveryTargets)
-    ? raw.deliveryTargets.filter(isDeliveryTarget)
-    : undefined;
-
-  const context: SentinelDeliveryContext = {};
-  if (sessionKey) context.sessionKey = sessionKey;
-  if (messageChannel) context.messageChannel = messageChannel;
-  if (requesterSenderId) context.requesterSenderId = requesterSenderId;
-  if (agentAccountId) context.agentAccountId = agentAccountId;
-  if (currentChat) context.currentChat = currentChat;
-  if (deliveryTargets && deliveryTargets.length > 0) context.deliveryTargets = deliveryTargets;
-
-  return Object.keys(context).length > 0 ? context : undefined;
-}
-
-function asBoolean(value: unknown): boolean | undefined {
-  return typeof value === "boolean" ? value : undefined;
-}
-
-function buildSentinelEventEnvelope(payload: Record<string, unknown>): SentinelEventEnvelope {
-  const watcherRecord = isRecord(payload.watcher) ? payload.watcher : undefined;
-  const triggerRecord = isRecord(payload.trigger) ? payload.trigger : undefined;
-
-  const watcherId =
-    asString(payload.watcherId) ??
-    asString(watcherRecord?.id) ??
-    getNestedString(payload, ["context", "watcherId"]);
-
-  const eventName =
-    asString(payload.eventName) ??
-    asString(watcherRecord?.eventName) ??
-    getNestedString(payload, ["event", "name"]);
-
-  const skillId =
-    asString(payload.skillId) ??
-    asString(watcherRecord?.skillId) ??
-    getNestedString(payload, ["context", "skillId"]) ??
-    undefined;
-
-  const matchedAt =
-    asIsoString(payload.matchedAt) ??
-    asIsoString(payload.timestamp) ??
-    asIsoString(triggerRecord?.matchedAt) ??
-    new Date().toISOString();
-
-  const dedupeSeed = JSON.stringify({
-    watcherId: watcherId ?? null,
-    eventName: eventName ?? null,
-    matchedAt,
-  });
-  const generatedDedupe = createHash("sha256").update(dedupeSeed).digest("hex").slice(0, 16);
-  const dedupeKey =
-    asString(payload.dedupeKey) ??
-    asString(payload.correlationId) ??
-    asString(payload.correlationID) ??
-    asString(triggerRecord?.dedupeKey) ??
-    generatedDedupe;
-
-  const rawPayload =
-    payload.payload ??
-    (isRecord(payload.event) ? (payload.event.payload ?? payload.event.data) : undefined) ??
-    payload;
-  const rawContext =
-    payload.context ??
-    (isRecord(rawPayload) ? rawPayload.context : undefined) ??
-    (isRecord(payload.event) ? payload.event.context : undefined) ??
-    null;
-
-  const deliveryTargets = Array.isArray(payload.deliveryTargets)
-    ? payload.deliveryTargets.filter(isDeliveryTarget)
-    : undefined;
-
-  const sourceRoute =
-    getNestedString(payload, ["source", "route"]) ?? DEFAULT_SENTINEL_WEBHOOK_PATH;
-  const sourcePlugin = getNestedString(payload, ["source", "plugin"]) ?? "openclaw-sentinel";
-
-  const hookSessionGroup =
-    asString(payload.hookSessionGroup) ??
-    asString(payload.sessionGroup) ??
-    asString(watcherRecord?.sessionGroup);
-
-  const deliveryContext = extractDeliveryContext(payload);
-
-  const watcherIntent = asString(payload.intent) ?? asString(watcherRecord?.intent) ?? null;
-  const watcherStrategy = asString(watcherRecord?.strategy) ?? asString(payload.strategy) ?? null;
-  const watcherEndpoint = asString(watcherRecord?.endpoint) ?? asString(payload.endpoint) ?? null;
-  const watcherMatch = asString(watcherRecord?.match) ?? asString(payload.match) ?? null;
-  const watcherConditions = Array.isArray(watcherRecord?.conditions)
-    ? watcherRecord.conditions
-    : Array.isArray(payload.conditions)
-      ? payload.conditions
-      : [];
-  const watcherFireOnce = asBoolean(watcherRecord?.fireOnce ?? payload.fireOnce) ?? null;
-
-  const triggerPriority = asString(payload.priority) ?? asString(triggerRecord?.priority) ?? null;
-
-  const envelope: SentinelEventEnvelope = {
-    watcherId: watcherId ?? null,
-    eventName: eventName ?? null,
-    matchedAt,
-    watcher: {
-      id: watcherId ?? null,
-      skillId: skillId ?? null,
-      eventName: eventName ?? null,
-      intent: watcherIntent,
-      strategy: watcherStrategy,
-      endpoint: watcherEndpoint,
-      match: watcherMatch,
-      conditions: watcherConditions,
-      fireOnce: watcherFireOnce,
-    },
-    trigger: {
-      matchedAt,
-      dedupeKey,
-      priority: triggerPriority,
-    },
-    context: clipPayloadForPrompt(rawContext),
-    payload: clipPayloadForPrompt(rawPayload),
-    dedupeKey,
-    correlationId: dedupeKey,
-    source: {
-      route: sourceRoute,
-      plugin: sourcePlugin,
-    },
-  };
-
-  if (skillId) envelope.skillId = skillId;
-  if (hookSessionGroup) envelope.hookSessionGroup = hookSessionGroup;
-  if (deliveryTargets && deliveryTargets.length > 0) envelope.deliveryTargets = deliveryTargets;
-  if (deliveryContext) envelope.deliveryContext = deliveryContext;
-
-  return envelope;
-}
-
-function buildSentinelSystemEvent(envelope: SentinelEventEnvelope): string {
-  const callbackContext = {
+function buildCallbackPrompt(envelope: SentinelCallbackEnvelope): string {
+  const callbackJson = {
     watcher: envelope.watcher,
     trigger: envelope.trigger,
-    source: envelope.source,
-    deliveryTargets: envelope.deliveryTargets ?? [],
-    deliveryContext: envelope.deliveryContext ?? null,
+    ...(envelope.operatorGoal ? { operatorGoal: envelope.operatorGoal } : {}),
     context: envelope.context,
-    payload: envelope.payload,
+    payload: clipPayloadForPrompt(envelope.payload),
+    deliveryTargets: envelope.deliveryTargets,
+    source: envelope.source,
   };
 
   const text = [
-    SENTINEL_EVENT_INSTRUCTION_PREFIX,
-    "Callback handling requirements:",
-    "- Base actions on watcher intent/event/skill plus the callback context and payload.",
-    "- Return a concise user-facing response that reflects what triggered and what to do next.",
+    "SENTINEL_TRIGGER: A sentinel watcher callback has fired. Analyze the callback and take appropriate action.",
+    "",
+    "Instructions:",
+    "- Review the watcher intent, event payload, and operator goal (if present).",
+    "- Use sentinel_act to execute remediation actions when the situation calls for it.",
+    "- Use sentinel_escalate if the situation requires user attention or is beyond your ability to resolve.",
+    "- After any actions, provide a concise user-facing summary of what happened and what was done.",
     "- Never emit control tokens such as NO_REPLY or HEARTBEAT_OK.",
-    "SENTINEL_CALLBACK_CONTEXT_JSON:",
-    JSON.stringify(callbackContext, null, 2),
-    "SENTINEL_ENVELOPE_JSON:",
-    JSON.stringify(envelope, null, 2),
+    "",
+    "SENTINEL_CALLBACK_JSON:",
+    JSON.stringify(callbackJson, null, 2),
   ].join("\n");
 
   return trimText(text, MAX_SENTINEL_WEBHOOK_TEXT_CHARS);
@@ -419,119 +204,6 @@ function normalizeDeliveryTargets(targets: DeliveryTarget[]): DeliveryTarget[] {
     deduped.set(key, { channel, to, ...(accountId ? { accountId } : {}) });
   }
   return [...deduped.values()];
-}
-
-function inferTargetFromSessionKey(
-  sessionKey: string,
-  accountId?: string,
-): DeliveryTarget | undefined {
-  const segments = sessionKey
-    .split(":")
-    .map((part) => part.trim())
-    .filter(Boolean);
-  if (segments.length < 5) return undefined;
-
-  const channel = segments[2];
-  const to = segments.at(-1);
-  if (!channel || !to || !SUPPORTED_DELIVERY_CHANNELS.has(channel)) return undefined;
-
-  return {
-    channel,
-    to,
-    ...(accountId ? { accountId } : {}),
-  };
-}
-
-function inferRelayTargets(
-  payload: Record<string, unknown>,
-  envelope: SentinelEventEnvelope,
-): DeliveryTarget[] {
-  const inferred: DeliveryTarget[] = [];
-
-  if (envelope.deliveryTargets?.length) inferred.push(...envelope.deliveryTargets);
-
-  if (envelope.deliveryContext?.deliveryTargets?.length) {
-    inferred.push(...envelope.deliveryContext.deliveryTargets);
-  }
-
-  if (envelope.deliveryContext?.currentChat) inferred.push(envelope.deliveryContext.currentChat);
-
-  if (envelope.deliveryContext?.messageChannel && envelope.deliveryContext?.requesterSenderId) {
-    if (SUPPORTED_DELIVERY_CHANNELS.has(envelope.deliveryContext.messageChannel)) {
-      inferred.push({
-        channel: envelope.deliveryContext.messageChannel,
-        to: envelope.deliveryContext.requesterSenderId,
-        ...(envelope.deliveryContext.agentAccountId
-          ? { accountId: envelope.deliveryContext.agentAccountId }
-          : {}),
-      });
-    }
-  }
-
-  if (envelope.deliveryContext?.sessionKey) {
-    const target = inferTargetFromSessionKey(
-      envelope.deliveryContext.sessionKey,
-      envelope.deliveryContext.agentAccountId,
-    );
-    if (target) inferred.push(target);
-  }
-
-  if (isDeliveryTarget(payload.currentChat)) inferred.push(payload.currentChat);
-
-  const sourceCurrentChat = isRecord(payload.source) ? payload.source.currentChat : undefined;
-  if (isDeliveryTarget(sourceCurrentChat)) inferred.push(sourceCurrentChat);
-
-  const messageChannel = asString(payload.messageChannel);
-  const requesterSenderId = asString(payload.requesterSenderId);
-  if (messageChannel && requesterSenderId && SUPPORTED_DELIVERY_CHANNELS.has(messageChannel)) {
-    inferred.push({ channel: messageChannel, to: requesterSenderId });
-  }
-
-  const fromSessionKey = asString(payload.sessionKey);
-  if (fromSessionKey) {
-    const target = inferTargetFromSessionKey(fromSessionKey, asString(payload.agentAccountId));
-    if (target) inferred.push(target);
-  }
-
-  const sourceSessionKey = getNestedString(payload, ["source", "sessionKey"]);
-  if (sourceSessionKey) {
-    const sourceAccountId = getNestedString(payload, ["source", "accountId"]);
-    const target = inferTargetFromSessionKey(sourceSessionKey, sourceAccountId);
-    if (target) inferred.push(target);
-  }
-
-  return normalizeDeliveryTargets(inferred);
-}
-
-function summarizeContext(value: unknown): string | undefined {
-  if (!isRecord(value)) return undefined;
-
-  const entries = Object.entries(value).slice(0, 3);
-  if (entries.length === 0) return undefined;
-
-  const chunks = entries.map(([key, val]) => {
-    if (typeof val === "string") return `${key}=${trimText(val, 64)}`;
-    if (typeof val === "number" || typeof val === "boolean") return `${key}=${String(val)}`;
-    return `${key}=${trimText(JSON.stringify(val), 64)}`;
-  });
-  return chunks.join(" · ");
-}
-
-function buildRelayMessage(envelope: SentinelEventEnvelope): string {
-  const title = envelope.eventName ? `Sentinel alert: ${envelope.eventName}` : "Sentinel alert";
-  const watcher = envelope.watcherId ? `watcher ${envelope.watcherId}` : "watcher unknown";
-  const intent = envelope.watcher.intent ? `intent ${envelope.watcher.intent}` : undefined;
-
-  const contextSummary = summarizeContext(envelope.context) ?? summarizeContext(envelope.payload);
-
-  const lines = [title, `${watcher} · ${envelope.matchedAt}`];
-  if (intent) lines.push(intent);
-  if (contextSummary) lines.push(contextSummary);
-
-  const text = lines.join("\n").trim();
-  return text.length > 0
-    ? text
-    : "Sentinel callback received, but no assistant detail was generated.";
 }
 
 function normalizeControlTokenCandidate(value: string): string {
@@ -575,10 +247,7 @@ function resolveHookResponseFallbackMode(config: SentinelConfig): HookResponseFa
   return config.hookResponseFallbackMode === "none" ? "none" : DEFAULT_HOOK_RESPONSE_FALLBACK_MODE;
 }
 
-function buildIsolatedHookSessionKey(
-  envelope: SentinelEventEnvelope,
-  config: SentinelConfig,
-): string {
+function buildSessionKey(envelope: SentinelCallbackEnvelope, config: SentinelConfig): string {
   const configuredPrefix = asString(config.hookSessionPrefix);
   const legacyPrefix = asString(config.hookSessionKey);
   const hasCustomPrefix =
@@ -589,20 +258,11 @@ function buildIsolatedHookSessionKey(
     : (legacyPrefix ?? configuredPrefix ?? DEFAULT_HOOK_SESSION_PREFIX);
   const prefix = rawPrefix.replace(/:+$/g, "");
 
-  const group = asString(envelope.hookSessionGroup) ?? asString(config.hookSessionGroup);
-  if (group) {
-    return `${prefix}:group:${sanitizeSessionSegment(group)}`;
+  if (envelope.hookSessionGroup) {
+    return `${prefix}:group:${sanitizeSessionSegment(envelope.hookSessionGroup)}`;
   }
 
-  if (envelope.watcherId) {
-    return `${prefix}:watcher:${sanitizeSessionSegment(envelope.watcherId)}`;
-  }
-
-  if (envelope.dedupeKey) {
-    return `${prefix}:event:${sanitizeSessionSegment(envelope.dedupeKey.slice(0, 24))}`;
-  }
-
-  return `${prefix}:event:unknown`;
+  return `${prefix}:watcher:${sanitizeSessionSegment(envelope.watcher.id)}`;
 }
 
 function assertJsonContentType(req: IncomingMessage): void {
@@ -980,6 +640,27 @@ class HookResponseRelayManager {
   }
 }
 
+function isSentinelSession(sessionKey: string | undefined, config: SentinelConfig): boolean {
+  if (!sessionKey) return false;
+  const prefix = (config.hookSessionPrefix ?? DEFAULT_HOOK_SESSION_PREFIX).replace(/:+$/g, "");
+  return sessionKey.startsWith(prefix + ":");
+}
+
+const DENIED_COMMAND_PATTERNS = [
+  /\brm\s+(-[a-zA-Z]*r[a-zA-Z]*\s+|.*\s+)\/\s*$/,
+  /\brm\s+-[a-zA-Z]*r[a-zA-Z]*f/,
+  /\bmkfs\b/,
+  /\bdd\s+.*of=\/dev\//,
+  /\b:\(\)\{.*\|.*&.*\}.*:/,
+  /\bformat\b.*\/y/i,
+  /\bshutdown\b/,
+  /\breboot\b/,
+];
+
+function isDeniedCommand(cmd: string): boolean {
+  return DENIED_COMMAND_PATTERNS.some((pattern) => pattern.test(cmd));
+}
+
 export function createSentinelPlugin(overrides?: Partial<SentinelConfig>) {
   const config: SentinelConfig = {
     allowedHosts: [],
@@ -1065,6 +746,28 @@ export function createSentinelPlugin(overrides?: Partial<SentinelConfig>) {
       });
 
       registerSentinelControl(api.registerTool.bind(api), manager);
+      registerSentinelActionTools(api.registerTool.bind(api), manager, api, config);
+
+      if (typeof api.on === "function") {
+        api.on("before_tool_call", (event, ctx) => {
+          if (!isSentinelSession(ctx.sessionKey, config)) return;
+
+          if (event.toolName === "sentinel_act") {
+            const cmd = String(event.params?.command ?? "");
+            if (isDeniedCommand(cmd)) {
+              return { block: true, blockReason: `Command not allowed: ${cmd}` };
+            }
+          }
+        });
+
+        api.on("after_tool_call", (event, ctx) => {
+          if (!isSentinelSession(ctx.sessionKey, config)) return;
+
+          api.logger?.info?.(
+            `[openclaw-sentinel] Action trace: tool=${event.toolName} duration=${event.durationMs}ms error=${event.error ?? "none"}`,
+          );
+        });
+      }
 
       const path = normalizePath(DEFAULT_SENTINEL_WEBHOOK_PATH);
       if (!api.registerHttpRoute) {
@@ -1106,9 +809,9 @@ export function createSentinelPlugin(overrides?: Partial<SentinelConfig>) {
 
             try {
               const payload = await readSentinelWebhookPayload(req);
-              const envelope = buildSentinelEventEnvelope(payload);
-              const sessionKey = buildIsolatedHookSessionKey(envelope, config);
-              const text = buildSentinelSystemEvent(envelope);
+              const envelope = validateCallbackEnvelope(payload);
+              const sessionKey = buildSessionKey(envelope, config);
+              const text = buildCallbackPrompt(envelope);
               const enqueued = api.runtime.system.enqueueSystemEvent(text, {
                 sessionKey,
                 contextKey: SENTINEL_CALLBACK_CONTEXT_KEY,
@@ -1118,12 +821,19 @@ export function createSentinelPlugin(overrides?: Partial<SentinelConfig>) {
                 sessionKey,
               });
 
-              const relayTargets = inferRelayTargets(payload, envelope);
+              const relayTargets = normalizeDeliveryTargets([
+                ...(envelope.deliveryTargets ?? []),
+                ...(envelope.deliveryContext?.deliveryTargets ?? []),
+                ...(envelope.deliveryContext?.currentChat
+                  ? [envelope.deliveryContext.currentChat]
+                  : []),
+              ]);
+              const fallback = `Sentinel callback: ${envelope.watcher.eventName} (watcher ${envelope.watcher.id})`;
               const relay = hookResponseRelayManager.register({
-                dedupeKey: envelope.dedupeKey,
+                dedupeKey: envelope.trigger.dedupeKey,
                 sessionKey,
                 relayTargets,
-                fallbackMessage: buildRelayMessage(envelope),
+                fallbackMessage: fallback,
               });
 
               res.writeHead(200, { "content-type": "application/json" });

@@ -23,6 +23,58 @@ const baseWatcher = {
 } as const;
 
 describe("callback envelope", () => {
+  it("returns v2 envelope with correct shape", () => {
+    const envelope = createCallbackEnvelope({
+      watcher: baseWatcher as any,
+      payload: { service: "auth", status: "degraded" },
+      payloadBody: { service: "auth", status: "degraded" },
+      matchedAt: "2026-03-04T15:00:00.000Z",
+      webhookPath: "/hooks/sentinel",
+    });
+
+    expect(envelope.type).toBe("sentinel.callback");
+    expect(envelope.version).toBe("2");
+    expect(envelope.actionable).toBe(true);
+    expect(envelope.watcher.tags).toEqual([]);
+  });
+
+  it("includes tags when provided", () => {
+    const watcher = {
+      ...baseWatcher,
+      tags: ["crypto", "alerts"],
+    } as any;
+
+    const envelope = createCallbackEnvelope({
+      watcher,
+      payload: { service: "auth", status: "degraded" },
+      payloadBody: { service: "auth", status: "degraded" },
+      matchedAt: "2026-03-04T15:00:00.000Z",
+      webhookPath: "/hooks/sentinel",
+    });
+
+    expect(envelope.watcher.tags).toEqual(["crypto", "alerts"]);
+  });
+
+  it("includes operatorGoal when provided", () => {
+    const watcher = {
+      ...baseWatcher,
+      fire: {
+        ...baseWatcher.fire,
+        operatorGoal: "Ensure price alerts are delivered within 30 seconds",
+      },
+    } as any;
+
+    const envelope = createCallbackEnvelope({
+      watcher,
+      payload: { service: "auth", status: "degraded" },
+      payloadBody: { service: "auth", status: "degraded" },
+      matchedAt: "2026-03-04T15:00:00.000Z",
+      webhookPath: "/hooks/sentinel",
+    });
+
+    expect(envelope.operatorGoal).toBe("Ensure price alerts are delivered within 30 seconds");
+  });
+
   it("uses explicit intent/context/priority templates", () => {
     const watcher = {
       ...baseWatcher,

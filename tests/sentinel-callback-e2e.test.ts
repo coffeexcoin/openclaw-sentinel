@@ -492,7 +492,7 @@ describe("sentinel runtime callback e2e", () => {
     );
 
     const payloadText = JSON.stringify(requestRecord.body);
-    expect(payloadText).toContain("SENTINEL_CALLBACK_CONTEXT_JSON");
+    expect(payloadText).toContain("SENTINEL_CALLBACK_JSON");
     expect(payloadText).toContain("btc-price-50k");
     expect(payloadText).toContain("price_alert");
     expect(payloadText).toContain("deliveryTargets");

@@ -79,6 +79,11 @@ const FireConfigSchema = Type.Object({
         "Optional hook session group key. Watchers with the same key share one isolated callback-processing session.",
     }),
   ),
+  operatorGoal: Type.Optional(
+    Type.String({
+      description: "What success looks like for this watcher's callbacks",
+    }),
+  ),
 });
 
 const RetryPolicySchema = Type.Object({
@@ -149,6 +154,9 @@ const WatcherSchema = Type.Object(
     ),
     metadata: Type.Optional(
       Type.Record(Type.String(), Type.String(), { description: "Arbitrary key-value metadata" }),
+    ),
+    tags: Type.Optional(
+      Type.Array(Type.String({ description: "Classification tags" }), { maxItems: 10 }),
     ),
   },
   { description: "Full watcher definition" },

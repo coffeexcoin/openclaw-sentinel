@@ -280,7 +280,7 @@ export class WatcherManager {
           });
           let dispatchSucceeded = false;
           try {
-            await this.dispatcher.dispatch(webhookPath, body);
+            await this.dispatcher.dispatch(webhookPath, body as unknown as Record<string, unknown>);
             dispatchSucceeded = true;
             rt.lastDispatchError = undefined;
             rt.lastDispatchErrorAt = undefined;
@@ -311,7 +311,11 @@ export class WatcherManager {
               !isSentinelWebhook
             ) {
               const attemptedAt = new Date().toISOString();
-              const message = buildDeliveryNotificationMessage(watcher, body, deliveryMode);
+              const message = buildDeliveryNotificationMessage(
+                watcher,
+                body as unknown as Record<string, unknown>,
+                deliveryMode,
+              );
               const failures: Array<{ target: DeliveryTarget; error: string }> = [];
               let successCount = 0;
 

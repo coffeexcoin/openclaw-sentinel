@@ -5,6 +5,7 @@ import {
   SENTINEL_ORIGIN_CHANNEL_METADATA,
   SENTINEL_ORIGIN_SESSION_KEY_METADATA,
   SENTINEL_ORIGIN_TARGET_METADATA,
+  SentinelCallbackEnvelope,
   WatcherDefinition,
 } from "./types.js";
 import { renderTemplate } from "./template.js";
@@ -103,7 +104,7 @@ export function createCallbackEnvelope(args: {
   payloadBody: Record<string, unknown>;
   matchedAt: string;
   webhookPath: string;
-}): Record<string, unknown> {
+}): SentinelCallbackEnvelope {
   const { watcher, payload, payloadBody, matchedAt, webhookPath } = args;
   const context = {
     watcher,
@@ -129,7 +130,7 @@ export function createCallbackEnvelope(args: {
 
   return {
     type: "sentinel.callback",
-    version: "1",
+    version: "2",
     intent,
     actionable: true,
     watcher: {
@@ -142,6 +143,7 @@ export function createCallbackEnvelope(args: {
       match: watcher.match,
       conditions: watcher.conditions,
       fireOnce: watcher.fireOnce ?? false,
+      tags: watcher.tags ?? [],
     },
     trigger: {
       matchedAt,
@@ -149,6 +151,7 @@ export function createCallbackEnvelope(args: {
       priority,
       ...(deadline ? { deadline } : {}),
     },
+    ...(watcher.fire.operatorGoal ? { operatorGoal: watcher.fire.operatorGoal } : {}),
     ...(watcher.fire.sessionGroup ? { hookSessionGroup: watcher.fire.sessionGroup } : {}),
     ...(deliveryContext ? { deliveryContext } : {}),
     context: renderedContext ?? summarizePayload(payload),
@@ -158,5 +161,5 @@ export function createCallbackEnvelope(args: {
       plugin: "openclaw-sentinel",
       route: webhookPath,
     },
-  };
+  } as SentinelCallbackEnvelope;
 }

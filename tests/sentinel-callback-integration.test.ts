@@ -225,7 +225,7 @@ describe("sentinel callback e2e", () => {
 
     const relayedPrompt = String(enqueueSystemEvent.mock.calls[0][0] ?? "");
     expect(relayedPrompt).toContain("SENTINEL_TRIGGER:");
-    expect(relayedPrompt).toContain("SENTINEL_CALLBACK_CONTEXT_JSON:");
+    expect(relayedPrompt).toContain("SENTINEL_CALLBACK_JSON:");
     expect(relayedPrompt).toContain('"id": "btc-price-50k"');
     expect(relayedPrompt).toContain('"currentPrice": 51234.56');
 

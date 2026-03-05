@@ -76,6 +76,7 @@ export const WatcherSchema = Type.Object(
           ]),
         ),
         sessionGroup: Type.Optional(Type.String({ minLength: 1 })),
+        operatorGoal: Type.Optional(Type.String({ minLength: 1, maxLength: 500 })),
       },
       { additionalProperties: false },
     ),
@@ -102,6 +103,7 @@ export const WatcherSchema = Type.Object(
       ),
     ),
     metadata: Type.Optional(Type.Record(Type.String(), Type.String())),
+    tags: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { maxItems: 10 })),
   },
   {
     additionalProperties: false,

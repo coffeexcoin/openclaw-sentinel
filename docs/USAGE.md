@@ -59,17 +59,19 @@ Move the config to `plugins.entries.openclaw-sentinel.config`.
 - Callback processing is isolated by watcher session by default (`...:watcher:<id>`), with optional explicit grouping via `hookSessionGroup`.
 - Hook callbacks establish a response-delivery contract: assistant `llm_output` is relayed to original targets.
 - Reserved control outputs are suppressed (`NO_REPLY`, `HEARTBEAT_OK`, empty variants). If model output is unusable, Sentinel emits a concise contextual fallback.
-- Legacy `text`/`message` payloads remain supported for backward compatibility.
-
-Example structured wake event text:
+  Example structured wake event text:
 
 ```text
-SENTINEL_TRIGGER: This system event came from /hooks/sentinel. Use watcher + payload context to decide safe follow-up actions and produce a user-facing response.
-Callback handling requirements:
-- Base actions on watcher intent/event/skill plus the callback context and payload.
-- Return a concise user-facing response that reflects what triggered and what to do next.
+SENTINEL_TRIGGER: A sentinel watcher callback has fired. Analyze the callback and take appropriate action.
+
+Instructions:
+- Review the watcher intent, event payload, and operator goal (if present).
+- Use sentinel_act to execute remediation actions when the situation calls for it.
+- Use sentinel_escalate if the situation requires user attention or is beyond your ability to resolve.
+- After any actions, provide a concise user-facing summary of what happened and what was done.
 - Never emit control tokens such as NO_REPLY or HEARTBEAT_OK.
-SENTINEL_CALLBACK_CONTEXT_JSON:
+
+SENTINEL_CALLBACK_JSON:
 {
   "watcher": {
     "id": "status-watch",
@@ -80,22 +82,15 @@ SENTINEL_CALLBACK_CONTEXT_JSON:
     "endpoint": "https://status.example.com/api/health",
     "match": "all",
     "conditions": [{ "path": "status", "op": "eq", "value": "degraded" }],
-    "fireOnce": false
+    "fireOnce": false,
+    "tags": ["ops", "health"]
   },
   "trigger": { "matchedAt": "2026-03-04T14:12:00.000Z", "dedupeKey": "4f3f2bd2ce1a57cd", "priority": "high" },
   "source": { "route": "/hooks/sentinel", "plugin": "openclaw-sentinel" },
   "deliveryTargets": [{ "channel": "telegram", "to": "5613673222" }],
-  "deliveryContext": {
-    "sessionKey": "agent:main:telegram:direct:5613673222",
-    "messageChannel": "telegram",
-    "requesterSenderId": "5613673222",
-    "currentChat": { "channel": "telegram", "to": "5613673222" }
-  },
   "context": { "component": "api", "status": "degraded", "runbook": "ops-degraded-service" },
   "payload": { "component": "api", "status": "degraded" }
 }
-SENTINEL_ENVELOPE_JSON:
-{ ...full envelope... }
 ```
 
 Agent interpretation guidance: treat this as a sentinel trigger, evaluate action policy against watcher+trigger+payload context, and only notify/act using the declared targets and safe tool policy.
