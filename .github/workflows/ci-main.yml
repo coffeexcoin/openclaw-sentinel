@@ -73,6 +73,7 @@ jobs:
   smoke-e2e:
     name: smoke-e2e
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -94,5 +95,5 @@ jobs:
       - name: OpenClaw install smoke test
         run: pnpm run test:smoke
 
-      - name: E2E tests
+      - name: Runtime E2E tests (live OpenClaw gateway path)
         run: pnpm run test:e2e

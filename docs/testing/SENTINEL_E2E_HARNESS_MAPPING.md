@@ -1,26 +1,32 @@
-# Sentinel E2E Harness Mapping (OpenClaw-core plan → sentinel repo)
+# Sentinel runtime E2E harness mapping
 
-This repository does not include OpenClaw-core gateway harness utilities like `withGatewayServer`, `hooks-mapping`, or `cronIsolatedRun` mocks.
+`tests/sentinel-callback-e2e.test.ts` now runs a **real OpenClaw runtime path** instead of a plugin-only mock harness.
 
-To implement equivalent E2E coverage in `openclaw-sentinel`, we use a repo-local harness in `tests/sentinel-callback-e2e.test.ts`.
+## Test-layer split
 
-## Mapping
+- **Unit / integration tests** (`tests/*.test.ts`, excluding `*-e2e.test.ts`)
+  - validate plugin logic in-process with mocked runtime surfaces
+  - fast feedback for schema, route validation, envelope construction, and guardrail helpers
+- **Runtime E2E** (`tests/sentinel-callback-e2e.test.ts`)
+  - boots an isolated OpenClaw profile + gateway process
+  - installs the plugin tarball built under test
+  - posts real `/hooks/sentinel` callbacks over HTTP
+  - verifies runtime prompt handoff + relay behavior end-to-end
 
-| OpenClaw-core plan concept     | Sentinel repo equivalent                                                                                                      |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| Hook route + mapping dispatch  | Real `/hooks/sentinel` plugin route handler registered via `registerHttpRoute` mock                                           |
-| `cronIsolatedRun` call capture | `runtime.system.enqueueSystemEvent` spy (the plugin’s LLM-loop handoff point)                                                 |
-| Hook auth + webhook callback   | Dispatch to `localDispatchBase + /hooks/sentinel` is mocked in `globalThis.fetch`; route handler is invoked with mock req/res |
-| Enriched prompt template       | Fallback prompt generated from `__sentinelCallback` envelope and relayed as system-event text                                 |
-| Delivery/relay assertions      | Assert dispatch body, envelope fields, bearer auth header, and relayed prompt content                                         |
+## OpenClaw-core concept → Sentinel repo runtime equivalent
 
-## Why this adaptation is CI-safe
+| OpenClaw-core plan concept                 | Sentinel runtime E2E equivalent                                                                                                                                                     |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Isolated test gateway instance             | Spawn `openclaw gateway run` with a unique `--profile` and temp state directory.                                                                                                    |
+| Install plugin build-under-test            | `pnpm pack` tarball + `openclaw plugins install <tarball>` inside test profile.                                                                                                     |
+| Real callback route exercise               | HTTP `POST /hooks/sentinel` against live gateway listener.                                                                                                                          |
+| Runtime prompt-envelope verification       | Local OpenAI-compatible mock model server captures live `/chat/completions` request; test asserts `SENTINEL_CALLBACK_CONTEXT_JSON` + watcher/context fields in model input payload. |
+| LLM independence / deterministic CI        | Model provider points at local mock server (`127.0.0.1`) with queued deterministic assistant responses. No external network/LLM dependency.                                         |
+| Relay + control-token suppression behavior | Runtime gateway logs are asserted for `Relayed assistant response ...` and `Sent guardrail fallback ...` (for `NO_REPLY` output), validating suppression + fallback path.           |
 
-- No external network: all HTTP calls are mocked in-process.
-- No real LLM calls: tests assert at the handoff boundary (`enqueueSystemEvent`).
-- Deterministic: fixed fixtures + explicit wait helper + `fireOnce` watchers.
+## Why this is CI-safe
 
-## Extra behavior covered
-
-- Callback envelope generation and context propagation (`__sentinelCallback`).
-- Control-token suppression (`NO_REPLY`) plus fallback to structured sentinel callback summary when suppression empties message text.
+- No external network dependencies (only loopback HTTP).
+- No real provider/API keys required beyond dummy local token.
+- Deterministic response queue in mock model server.
+- Single-worker E2E config avoids profile/port races in CI.
