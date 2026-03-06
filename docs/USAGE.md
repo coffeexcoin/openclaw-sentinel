@@ -123,6 +123,7 @@ Create a watcher via `sentinel_control`:
       },
       "priority": "high",
       "sessionGroup": "ops-degraded",
+      "operatorGoal": "Triage the degraded service, run safe remediation steps, and notify owners with status and next action.",
       "payloadTemplate": {
         "event": "${event.name}",
         "component": "${payload.component}",
@@ -142,6 +143,13 @@ Create a watcher via `sentinel_control`:
   - plugin config: `hookSessionGroup`, or
   - per-watcher: `watcher.fire.sessionGroup` (wins over config default).
 - Shared global callback sessions are intentionally not supported.
+
+### `fire.operatorGoal` sizing guidance
+
+- Default limit is `12000` chars (raised from `500`).
+- Keep most goals concise (`200-2000` chars) and reserve very large goals for real runbook/policy context.
+- You can tune the limit with plugin config `maxOperatorGoalChars` (hard capped at `20000`).
+- Existing watchers under the old 500-char limit need no migration changes.
 
 ---
 
@@ -239,6 +247,7 @@ Config knobs:
 - `hookResponseTimeoutMs` — wait window for `sentinel_act` call before timeout fallback (default `30000`).
 - `hookResponseFallbackMode` — timeout behavior: `concise` (default fail-safe relay) or `none`.
 - `hookResponseDedupeWindowMs` — dedupe/idempotency window for repeated callback dedupe keys.
+- `maxOperatorGoalChars` — watcher `fire.operatorGoal` limit (default `12000`, min `500`, max `20000`).
 
 Flow:
 

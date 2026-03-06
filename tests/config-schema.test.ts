@@ -14,6 +14,7 @@ describe("sentinel config schema", () => {
       hookResponseFallbackMode: "concise",
       hookResponseDedupeWindowMs: 120000,
       notificationPayloadMode: "concise",
+      maxOperatorGoalChars: 12000,
       limits: {
         maxWatchersTotal: 200,
         maxWatchersPerSkill: 20,
@@ -61,6 +62,21 @@ describe("sentinel config schema", () => {
     }
   });
 
+  it("accepts maxOperatorGoalChars overrides inside safe bounds", () => {
+    const parsed = sentinelConfigSchema.safeParse?.({ maxOperatorGoalChars: 18000 });
+    expect(parsed?.success).toBe(true);
+    if (parsed?.success) {
+      expect(parsed.data?.maxOperatorGoalChars).toBe(18000);
+    }
+  });
+
+  it("rejects maxOperatorGoalChars values above hard cap", () => {
+    const parsed = sentinelConfigSchema.safeParse?.({ maxOperatorGoalChars: 50000 });
+    expect(parsed?.success).toBe(false);
+    const issue = parsed && !parsed.success ? parsed.error?.issues?.[0] : undefined;
+    expect(issue?.path).toEqual(["maxOperatorGoalChars"]);
+  });
+
   it("trims empty dispatchAuthToken to undefined", () => {
     const parsed = sentinelConfigSchema.safeParse?.({ dispatchAuthToken: "   " });
     expect(parsed?.success).toBe(true);
@@ -76,6 +92,15 @@ describe("sentinel config schema", () => {
     expect(parsed?.success).toBe(false);
     const issue = parsed && !parsed.success ? parsed.error?.issues?.[0] : undefined;
     expect(issue?.path).toEqual(["hookResponseTimeoutMs"]);
+  });
+
+  it("rejects non-finite maxOperatorGoalChars", () => {
+    const parsed = sentinelConfigSchema.safeParse?.({
+      maxOperatorGoalChars: Number.NaN,
+    });
+    expect(parsed?.success).toBe(false);
+    const issue = parsed && !parsed.success ? parsed.error?.issues?.[0] : undefined;
+    expect(issue?.path).toEqual(["maxOperatorGoalChars"]);
   });
 
   it("rejects non-finite numeric limit values", () => {

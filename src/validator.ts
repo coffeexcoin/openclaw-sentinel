@@ -1,7 +1,13 @@
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { TemplateValueSchema } from "./templateValueSchema.js";
-import { DEFAULT_SENTINEL_WEBHOOK_PATH, WatcherDefinition } from "./types.js";
+import {
+  DEFAULT_OPERATOR_GOAL_MAX_CHARS,
+  DEFAULT_SENTINEL_WEBHOOK_PATH,
+  MAX_OPERATOR_GOAL_MAX_CHARS,
+  MIN_OPERATOR_GOAL_MAX_CHARS,
+  WatcherDefinition,
+} from "./types.js";
 
 const TemplateValueRefSchema = Type.Ref(TemplateValueSchema);
 
@@ -41,89 +47,115 @@ const EvmCallSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const WatcherSchema = Type.Object(
-  {
-    id: Type.String({ pattern: WATCHER_ID_PATTERN, maxLength: 128 }),
-    skillId: Type.String({ minLength: 1 }),
-    enabled: Type.Boolean(),
-    strategy: Type.Union([
-      Type.Literal("http-poll"),
-      Type.Literal("websocket"),
-      Type.Literal("sse"),
-      Type.Literal("http-long-poll"),
-      Type.Literal("evm-call"),
-    ]),
-    endpoint: Type.String({ minLength: 1 }),
-    method: Type.Optional(Type.Union([Type.Literal("GET"), Type.Literal("POST")])),
-    headers: Type.Optional(Type.Record(Type.String(), Type.String())),
-    body: Type.Optional(Type.String()),
-    intervalMs: Type.Optional(Type.Integer({ minimum: 1 })),
-    timeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),
-    match: Type.Union([Type.Literal("all"), Type.Literal("any")]),
-    conditions: Type.Array(ConditionSchema, { minItems: 1 }),
-    fire: Type.Object(
-      {
-        webhookPath: Type.Optional(Type.String({ pattern: "^/" })),
-        eventName: Type.String({ minLength: 1 }),
-        payloadTemplate: Type.Record(Type.String(), TemplateValueRefSchema),
-        intent: Type.Optional(Type.String({ minLength: 1 })),
-        contextTemplate: Type.Optional(Type.Record(Type.String(), TemplateValueRefSchema)),
-        priority: Type.Optional(
-          Type.Union([
-            Type.Literal("low"),
-            Type.Literal("normal"),
-            Type.Literal("high"),
-            Type.Literal("critical"),
-          ]),
-        ),
-        deadlineTemplate: Type.Optional(Type.String({ minLength: 1 })),
-        dedupeKeyTemplate: Type.Optional(Type.String({ minLength: 1 })),
-        notificationPayloadMode: Type.Optional(
-          Type.Union([
-            Type.Literal("inherit"),
-            Type.Literal("none"),
-            Type.Literal("concise"),
-            Type.Literal("debug"),
-          ]),
-        ),
-        sessionGroup: Type.Optional(Type.String({ minLength: 1 })),
-        operatorGoal: Type.Optional(Type.String({ minLength: 1, maxLength: 500 })),
-      },
-      { additionalProperties: false },
-    ),
-    retry: Type.Object(
-      {
-        maxRetries: Type.Integer({ minimum: 0, maximum: 20 }),
-        baseMs: Type.Integer({ minimum: 50, maximum: 60000 }),
-        maxMs: Type.Integer({ minimum: 100, maximum: 300000 }),
-      },
-      { additionalProperties: false },
-    ),
-    fireOnce: Type.Optional(Type.Boolean()),
-    deliveryTargets: Type.Optional(
-      Type.Array(
-        Type.Object(
-          {
-            channel: Type.String({ minLength: 1 }),
-            to: Type.String({ minLength: 1 }),
-            accountId: Type.Optional(Type.String({ minLength: 1 })),
-          },
-          { additionalProperties: false },
-        ),
-        { minItems: 1 },
+function createWatcherSchema(maxOperatorGoalChars: number) {
+  return Type.Object(
+    {
+      id: Type.String({ pattern: WATCHER_ID_PATTERN, maxLength: 128 }),
+      skillId: Type.String({ minLength: 1 }),
+      enabled: Type.Boolean(),
+      strategy: Type.Union([
+        Type.Literal("http-poll"),
+        Type.Literal("websocket"),
+        Type.Literal("sse"),
+        Type.Literal("http-long-poll"),
+        Type.Literal("evm-call"),
+      ]),
+      endpoint: Type.String({ minLength: 1 }),
+      method: Type.Optional(Type.Union([Type.Literal("GET"), Type.Literal("POST")])),
+      headers: Type.Optional(Type.Record(Type.String(), Type.String())),
+      body: Type.Optional(Type.String()),
+      intervalMs: Type.Optional(Type.Integer({ minimum: 1 })),
+      timeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),
+      match: Type.Union([Type.Literal("all"), Type.Literal("any")]),
+      conditions: Type.Array(ConditionSchema, { minItems: 1 }),
+      fire: Type.Object(
+        {
+          webhookPath: Type.Optional(Type.String({ pattern: "^/" })),
+          eventName: Type.String({ minLength: 1 }),
+          payloadTemplate: Type.Record(Type.String(), TemplateValueRefSchema),
+          intent: Type.Optional(Type.String({ minLength: 1 })),
+          contextTemplate: Type.Optional(Type.Record(Type.String(), TemplateValueRefSchema)),
+          priority: Type.Optional(
+            Type.Union([
+              Type.Literal("low"),
+              Type.Literal("normal"),
+              Type.Literal("high"),
+              Type.Literal("critical"),
+            ]),
+          ),
+          deadlineTemplate: Type.Optional(Type.String({ minLength: 1 })),
+          dedupeKeyTemplate: Type.Optional(Type.String({ minLength: 1 })),
+          notificationPayloadMode: Type.Optional(
+            Type.Union([
+              Type.Literal("inherit"),
+              Type.Literal("none"),
+              Type.Literal("concise"),
+              Type.Literal("debug"),
+            ]),
+          ),
+          sessionGroup: Type.Optional(Type.String({ minLength: 1 })),
+          operatorGoal: Type.Optional(
+            Type.String({ minLength: 1, maxLength: maxOperatorGoalChars }),
+          ),
+        },
+        { additionalProperties: false },
       ),
-    ),
-    evmCall: Type.Optional(EvmCallSchema),
-    metadata: Type.Optional(Type.Record(Type.String(), Type.String())),
-    tags: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { maxItems: 10 })),
-  },
-  {
-    additionalProperties: false,
-    $defs: {
-      templateValue: TemplateValueSchema,
+      retry: Type.Object(
+        {
+          maxRetries: Type.Integer({ minimum: 0, maximum: 20 }),
+          baseMs: Type.Integer({ minimum: 50, maximum: 60000 }),
+          maxMs: Type.Integer({ minimum: 100, maximum: 300000 }),
+        },
+        { additionalProperties: false },
+      ),
+      fireOnce: Type.Optional(Type.Boolean()),
+      deliveryTargets: Type.Optional(
+        Type.Array(
+          Type.Object(
+            {
+              channel: Type.String({ minLength: 1 }),
+              to: Type.String({ minLength: 1 }),
+              accountId: Type.Optional(Type.String({ minLength: 1 })),
+            },
+            { additionalProperties: false },
+          ),
+          { minItems: 1 },
+        ),
+      ),
+      evmCall: Type.Optional(EvmCallSchema),
+      metadata: Type.Optional(Type.Record(Type.String(), Type.String())),
+      tags: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { maxItems: 10 })),
     },
-  },
-);
+    {
+      additionalProperties: false,
+      $defs: {
+        templateValue: TemplateValueSchema,
+      },
+    },
+  );
+}
+
+const watcherSchemaByOperatorGoalLimit = new Map<number, ReturnType<typeof createWatcherSchema>>();
+
+function resolveOperatorGoalMaxChars(raw: unknown): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw)) {
+    return DEFAULT_OPERATOR_GOAL_MAX_CHARS;
+  }
+
+  const integer = Math.trunc(raw);
+  return Math.max(MIN_OPERATOR_GOAL_MAX_CHARS, Math.min(MAX_OPERATOR_GOAL_MAX_CHARS, integer));
+}
+
+function getWatcherSchema(maxOperatorGoalChars: number) {
+  const cached = watcherSchemaByOperatorGoalLimit.get(maxOperatorGoalChars);
+  if (cached) return cached;
+
+  const schema = createWatcherSchema(maxOperatorGoalChars);
+  watcherSchemaByOperatorGoalLimit.set(maxOperatorGoalChars, schema);
+  return schema;
+}
+
+export const WatcherSchema = getWatcherSchema(DEFAULT_OPERATOR_GOAL_MAX_CHARS);
 
 const CODE_SCAN_EXEMPT_PATHS = new Set(["evmCall.signature"]);
 
@@ -149,11 +181,17 @@ function scanNoCodeLike(input: unknown, parentKey = ""): void {
   }
 }
 
-export function validateWatcherDefinition(input: unknown): WatcherDefinition {
+export function validateWatcherDefinition(
+  input: unknown,
+  options?: { maxOperatorGoalChars?: number },
+): WatcherDefinition {
   scanNoCodeLike(input);
 
-  if (!Value.Check(WatcherSchema, [TemplateValueSchema], input)) {
-    const first = [...Value.Errors(WatcherSchema, [TemplateValueSchema], input)][0];
+  const maxOperatorGoalChars = resolveOperatorGoalMaxChars(options?.maxOperatorGoalChars);
+  const schema = getWatcherSchema(maxOperatorGoalChars);
+
+  if (!Value.Check(schema, [TemplateValueSchema], input)) {
+    const first = [...Value.Errors(schema, [TemplateValueSchema], input)][0];
     const where = first?.path || "(root)";
     const why = first?.message || "Invalid watcher definition";
     throw new Error(`Invalid watcher definition at ${where}: ${why}`);

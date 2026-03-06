@@ -10,6 +10,7 @@ describe("standalone watcher schema", () => {
     const watcher = schema?.$defs?.watcher;
     expect(watcher?.properties?.deliveryTargets?.items?.$ref).toBe("#/$defs/deliveryTarget");
     expect(watcher?.properties?.id?.pattern).toBe("^[A-Za-z0-9_-]{1,128}$");
+    expect(schema?.$defs?.fire?.properties?.operatorGoal?.maxLength).toBe(20000);
   });
 
   it("includes evmCall definition and evm-call strategy", () => {

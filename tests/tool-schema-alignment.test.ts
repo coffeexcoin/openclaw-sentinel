@@ -72,6 +72,22 @@ describe("tool schema validation", () => {
     expect(Value.Check(SentinelToolValidationSchema, [TemplateValueSchema], evmCreate)).toBe(true);
   });
 
+  it("rejects operatorGoal values above the hard cap in tool schemas", () => {
+    const oversized = {
+      ...validCreate,
+      watcher: {
+        ...validCreate.watcher,
+        fire: {
+          ...validCreate.watcher.fire,
+          operatorGoal: "x".repeat(20001),
+        },
+      },
+    };
+
+    expect(Value.Check(SentinelToolSchema, [TemplateValueSchema], oversized)).toBe(false);
+    expect(Value.Check(SentinelToolValidationSchema, [TemplateValueSchema], oversized)).toBe(false);
+  });
+
   it("keeps strict action-specific validation for required fields", () => {
     expect(
       Value.Check(SentinelToolSchema, [TemplateValueSchema], { action: "list", id: "x" }),

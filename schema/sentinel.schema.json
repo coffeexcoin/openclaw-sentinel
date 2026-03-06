@@ -87,7 +87,13 @@
           "enum": ["inherit", "none", "concise", "debug"],
           "description": "Per-watcher notification payload mode override for deliveryTargets"
         },
-        "sessionGroup": { "type": "string", "minLength": 1 }
+        "sessionGroup": { "type": "string", "minLength": 1 },
+        "operatorGoal": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000,
+          "description": "Watcher callback success criteria text. Runtime default limit is 12000 chars unless maxOperatorGoalChars override is set."
+        }
       }
     },
     "retry": {

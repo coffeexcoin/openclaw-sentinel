@@ -67,6 +67,68 @@ describe("validator", () => {
     expect(watcher.fire.notificationPayloadMode).toBe("none");
   });
 
+  it("accepts legacy-small operatorGoal values", () => {
+    const watcher = validateWatcherDefinition({
+      ...base,
+      fire: {
+        ...base.fire,
+        operatorGoal: "Acknowledge alert and post triage summary",
+      },
+    });
+    expect(watcher.fire.operatorGoal).toContain("triage summary");
+  });
+
+  it("accepts larger operatorGoal values near the new default limit", () => {
+    const watcher = validateWatcherDefinition({
+      ...base,
+      fire: {
+        ...base.fire,
+        operatorGoal: "x".repeat(11999),
+      },
+    });
+    expect(watcher.fire.operatorGoal).toHaveLength(11999);
+  });
+
+  it("rejects operatorGoal values over the default limit", () => {
+    expect(() =>
+      validateWatcherDefinition({
+        ...base,
+        fire: {
+          ...base.fire,
+          operatorGoal: "x".repeat(12001),
+        },
+      }),
+    ).toThrow(/operatorGoal/i);
+  });
+
+  it("respects maxOperatorGoalChars overrides", () => {
+    expect(() =>
+      validateWatcherDefinition(
+        {
+          ...base,
+          fire: {
+            ...base.fire,
+            operatorGoal: "x".repeat(17000),
+          },
+        },
+        { maxOperatorGoalChars: 20000 },
+      ),
+    ).not.toThrow();
+
+    expect(() =>
+      validateWatcherDefinition(
+        {
+          ...base,
+          fire: {
+            ...base.fire,
+            operatorGoal: "x".repeat(17000),
+          },
+        },
+        { maxOperatorGoalChars: 16000 },
+      ),
+    ).toThrow(/operatorGoal/i);
+  });
+
   it("rejects watcher ids with invalid characters", () => {
     expect(() => validateWatcherDefinition({ ...base, id: "../../etc/passwd" })).toThrow(
       /Invalid watcher definition/,

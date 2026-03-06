@@ -107,7 +107,9 @@ export class WatcherManager {
 
     for (const rawWatcher of state.watchers) {
       try {
-        const watcher = validateWatcherDefinition(rawWatcher);
+        const watcher = validateWatcherDefinition(rawWatcher, {
+          maxOperatorGoalChars: this.config.maxOperatorGoalChars,
+        });
         assertHostAllowed(this.config, watcher.endpoint);
         assertWatcherLimits(this.config, this.list(), watcher);
         this.watchers.set(watcher.id, watcher);
@@ -132,7 +134,9 @@ export class WatcherManager {
   }
 
   async create(input: unknown, ctx?: WatcherCreateContext): Promise<WatcherDefinition> {
-    const watcher = validateWatcherDefinition(input);
+    const watcher = validateWatcherDefinition(input, {
+      maxOperatorGoalChars: this.config.maxOperatorGoalChars,
+    });
     if (!watcher.deliveryTargets?.length && ctx?.deliveryTargets?.length) {
       watcher.deliveryTargets = ctx.deliveryTargets;
     }

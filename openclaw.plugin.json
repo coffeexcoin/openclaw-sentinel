@@ -50,6 +50,13 @@
         "description": "Controls delivery-target notifications: none (suppress message fan-out), concise relay text (default), or relay text with debug envelope payload",
         "default": "concise"
       },
+      "maxOperatorGoalChars": {
+        "type": "integer",
+        "minimum": 500,
+        "maximum": 20000,
+        "description": "Max allowed watcher.fire.operatorGoal characters. Higher values allow richer callback guidance but increase state/prompt footprint.",
+        "default": 12000
+      },
       "limits": {
         "type": "object",
         "additionalProperties": false,
@@ -140,6 +147,11 @@
     "notificationPayloadMode": {
       "label": "Notification Payload Mode",
       "help": "Choose none (suppress delivery-target messages), concise relay text (default), or include debug envelope payload",
+      "advanced": true
+    },
+    "maxOperatorGoalChars": {
+      "label": "Max Operator Goal Chars",
+      "help": "Maximum watcher.fire.operatorGoal length (default 12000, min 500, max 20000)",
       "advanced": true
     },
     "limits.maxWatchersTotal": {

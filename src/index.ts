@@ -4,6 +4,7 @@ import { sentinelConfigSchema } from "./configSchema.js";
 import { registerSentinelActionTools } from "./actionTools.js";
 import { registerSentinelControl } from "./tool.js";
 import {
+  DEFAULT_OPERATOR_GOAL_MAX_CHARS,
   DEFAULT_SENTINEL_WEBHOOK_PATH,
   DeliveryTarget,
   HookResponseFallbackMode,
@@ -630,6 +631,7 @@ export function createSentinelPlugin(overrides?: Partial<SentinelConfig>) {
     hookResponseFallbackMode: DEFAULT_HOOK_RESPONSE_FALLBACK_MODE,
     hookResponseDedupeWindowMs: DEFAULT_RELAY_DEDUPE_WINDOW_MS,
     notificationPayloadMode: "concise",
+    maxOperatorGoalChars: DEFAULT_OPERATOR_GOAL_MAX_CHARS,
     limits: {
       maxWatchersTotal: 200,
       maxWatchersPerSkill: 20,

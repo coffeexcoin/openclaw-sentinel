@@ -28,6 +28,10 @@ export interface Condition {
 export const DEFAULT_SENTINEL_WEBHOOK_PATH = "/hooks/sentinel";
 export const SENTINEL_CALLBACK_ENVELOPE_KEY = "__sentinelCallback";
 
+export const MIN_OPERATOR_GOAL_MAX_CHARS = 500;
+export const DEFAULT_OPERATOR_GOAL_MAX_CHARS = 12000;
+export const MAX_OPERATOR_GOAL_MAX_CHARS = 20000;
+
 export type PriorityLevel = "low" | "normal" | "high" | "critical";
 export type NotificationPayloadMode = "none" | "concise" | "debug";
 export type NotificationPayloadModeOverride = "inherit" | NotificationPayloadMode;
@@ -178,6 +182,7 @@ export interface SentinelConfig {
   hookResponseDedupeWindowMs?: number;
   stateFilePath?: string;
   notificationPayloadMode?: NotificationPayloadMode;
+  maxOperatorGoalChars?: number;
   limits: SentinelLimits;
 }
 

@@ -1,6 +1,11 @@
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import type { OpenClawPluginConfigSchema } from "openclaw/plugin-sdk";
+import {
+  DEFAULT_OPERATOR_GOAL_MAX_CHARS,
+  MAX_OPERATOR_GOAL_MAX_CHARS,
+  MIN_OPERATOR_GOAL_MAX_CHARS,
+} from "./types.js";
 
 const LimitsSchema = Type.Object(
   {
@@ -34,6 +39,12 @@ const ConfigSchema = Type.Object(
     hookResponseDedupeWindowMs: Type.Optional(Type.Integer({ minimum: 0 })),
     stateFilePath: Type.Optional(Type.String()),
     notificationPayloadMode: Type.Optional(NotificationPayloadModeSchema),
+    maxOperatorGoalChars: Type.Optional(
+      Type.Integer({
+        minimum: MIN_OPERATOR_GOAL_MAX_CHARS,
+        maximum: MAX_OPERATOR_GOAL_MAX_CHARS,
+      }),
+    ),
     limits: Type.Optional(LimitsSchema),
   },
   { additionalProperties: false },
@@ -50,6 +61,7 @@ function findInvalidNumericPath(input: Record<string, unknown>): string | undefi
     "hookRelayDedupeWindowMs",
     "hookResponseTimeoutMs",
     "hookResponseDedupeWindowMs",
+    "maxOperatorGoalChars",
   ] as const;
 
   for (const key of numericPaths) {
@@ -119,6 +131,10 @@ function withDefaults(value: Record<string, unknown>): Record<string, unknown> {
         : value.notificationPayloadMode === "debug"
           ? "debug"
           : "concise",
+    maxOperatorGoalChars:
+      typeof value.maxOperatorGoalChars === "number" && Number.isFinite(value.maxOperatorGoalChars)
+        ? value.maxOperatorGoalChars
+        : DEFAULT_OPERATOR_GOAL_MAX_CHARS,
     limits: {
       maxWatchersTotal:
         typeof limitsIn.maxWatchersTotal === "number" && Number.isFinite(limitsIn.maxWatchersTotal)
@@ -275,6 +291,14 @@ export const sentinelConfigSchema: OpenClawPluginConfigSchema = {
           "Controls delivery-target notifications: none (suppress message fan-out), concise relay text (default), or relay text with debug envelope payload",
         default: "concise",
       },
+      maxOperatorGoalChars: {
+        type: "integer",
+        minimum: MIN_OPERATOR_GOAL_MAX_CHARS,
+        maximum: MAX_OPERATOR_GOAL_MAX_CHARS,
+        description:
+          "Max allowed watcher.fire.operatorGoal characters. Higher values allow richer callback guidance but increase state/prompt footprint.",
+        default: DEFAULT_OPERATOR_GOAL_MAX_CHARS,
+      },
       limits: {
         type: "object",
         additionalProperties: false,
@@ -362,6 +386,11 @@ export const sentinelConfigSchema: OpenClawPluginConfigSchema = {
     notificationPayloadMode: {
       label: "Notification Payload Mode",
       help: "Choose none (suppress delivery-target messages), concise relay text (default), or include debug envelope payload",
+      advanced: true,
+    },
+    maxOperatorGoalChars: {
+      label: "Max Operator Goal Chars",
+      help: `Maximum watcher.fire.operatorGoal length (default ${DEFAULT_OPERATOR_GOAL_MAX_CHARS}, min ${MIN_OPERATOR_GOAL_MAX_CHARS}, max ${MAX_OPERATOR_GOAL_MAX_CHARS})`,
       advanced: true,
     },
     "limits.maxWatchersTotal": {

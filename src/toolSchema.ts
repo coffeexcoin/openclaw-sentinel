@@ -1,4 +1,5 @@
 import { Type } from "@sinclair/typebox";
+import { MAX_OPERATOR_GOAL_MAX_CHARS } from "./types.js";
 import { TemplateValueSchema } from "./templateValueSchema.js";
 
 const TemplateValueRefSchema = Type.Ref(TemplateValueSchema);
@@ -81,7 +82,10 @@ const FireConfigSchema = Type.Object({
   ),
   operatorGoal: Type.Optional(
     Type.String({
-      description: "What success looks like for this watcher's callbacks",
+      minLength: 1,
+      maxLength: MAX_OPERATOR_GOAL_MAX_CHARS,
+      description:
+        "What success looks like for this watcher's callbacks (default runtime limit 12000 chars; configurable up to 20000)",
     }),
   ),
 });

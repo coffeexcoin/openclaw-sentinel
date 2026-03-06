@@ -56,6 +56,11 @@ Add/update `~/.openclaw/openclaw.json`:
           // "debug" appends a structured sentinel envelope block for diagnostics.
           // notificationPayloadMode: "concise",
 
+          // Optional: max length for watcher.fire.operatorGoal.
+          // Default: 12000, min: 500, hard cap: 20000.
+          // Keep this as small as practical to reduce state + prompt bloat.
+          // maxOperatorGoalChars: 12000,
+
           // Optional legacy alias for hookSessionPrefix (still supported).
           // hookSessionKey: "agent:main:hooks:sentinel",
 
@@ -122,6 +127,7 @@ Sentinel also logs a runtime warning when that legacy root key is still observab
       },
       "priority": "high",
       "sessionGroup": "portfolio-risk",
+      "operatorGoal": "Confirm threshold breach, summarize impact, and notify on-call with actionable next steps.",
       "deadlineTemplate": "${timestamp}",
       "payloadTemplate": {
         "event": "${event.name}",
@@ -197,6 +203,17 @@ Sample emitted envelope:
   "source": { "plugin": "openclaw-sentinel", "route": "/hooks/sentinel" }
 }
 ```
+
+## `fire.operatorGoal` length guidance
+
+- Default max length is **12000** chars (raised from 500).
+- You can tune this with plugin config: `maxOperatorGoalChars` (min 500, hard cap 20000).
+- Recommendation: keep most goals in the **200-2000 char** range for clarity and lower prompt/state overhead.
+- Use larger goals only when you genuinely need richer policy/runbook context.
+
+Tradeoff: larger values improve callback guidance but also increase persisted watcher size and callback prompt footprint, so unbounded values are intentionally not allowed.
+
+Migration: existing watchers under the old 500-char limit continue to work unchanged. No migration action is required unless you want to add richer guidance.
 
 ## Why Sentinel
 
