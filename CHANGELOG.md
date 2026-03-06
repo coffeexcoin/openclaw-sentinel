@@ -50,10 +50,6 @@
 
 ### Patch Notes
 
-- Raised watcher `fire.operatorGoal` max length from 500 to a safer richer default of 12000 chars.
-- Added optional config override `maxOperatorGoalChars` (min 500, max 20000 hard cap) to balance richer callback guidance with storage/prompt-size safety.
-- Added validator/create-flow/schema tests for small, near-limit, and over-limit `operatorGoal` values.
-- Updated docs with `operatorGoal` sizing guidance and migration note (existing <=500-char watchers require no action).
 - Sentinel `/hooks/sentinel` callbacks now enqueue with a cron-tagged callback context and wake via `cron:sentinel-callback`, so callback sessions process `SENTINEL_TRIGGER` envelope context instead of heartbeat-poll prompting.
 - Added relay guardrails so literal `HEARTBEAT_OK` is never forwarded as callback output; concise fallback relay remains sentinel-specific.
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
-  "changelog": ["@changesets/cli/changelog", { "repo": "coffeebot-agent/openclaw-sentinel" }],
+  "changelog": ["@changesets/cli/changelog", { "repo": "coffeexcoin/openclaw-sentinel" }],
   "commit": false,
   "fixed": [],
   "linked": [],
