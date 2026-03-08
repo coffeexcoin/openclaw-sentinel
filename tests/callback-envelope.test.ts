@@ -182,6 +182,55 @@ describe("callback envelope", () => {
     });
   });
 
+  it("includes operatorGoalRuntimeContext when provided", () => {
+    const envelope = createCallbackEnvelope({
+      watcher: baseWatcher as any,
+      payload: { service: "auth", status: "degraded" },
+      payloadBody: { service: "auth", status: "degraded" },
+      matchedAt: "2026-03-04T15:00:00.000Z",
+      webhookPath: "/hooks/sentinel",
+      operatorGoalRuntimeContext: '{"bidCap": 50, "incrementTiers": [1, 5, 10]}',
+    });
+
+    expect(envelope.operatorGoalRuntimeContext).toBe(
+      '{"bidCap": 50, "incrementTiers": [1, 5, 10]}',
+    );
+  });
+
+  it("omits operatorGoalRuntimeContext when not provided", () => {
+    const envelope = createCallbackEnvelope({
+      watcher: baseWatcher as any,
+      payload: { service: "auth", status: "degraded" },
+      payloadBody: { service: "auth", status: "degraded" },
+      matchedAt: "2026-03-04T15:00:00.000Z",
+      webhookPath: "/hooks/sentinel",
+    });
+
+    expect(envelope.operatorGoalRuntimeContext).toBeUndefined();
+  });
+
+  it("includes both operatorGoal and operatorGoalRuntimeContext when both present", () => {
+    const watcher = {
+      ...baseWatcher,
+      fire: {
+        ...baseWatcher.fire,
+        operatorGoal: "Follow the bidding policy from runtime context",
+      },
+    } as any;
+
+    const envelope = createCallbackEnvelope({
+      watcher,
+      payload: { service: "auth", status: "degraded" },
+      payloadBody: { service: "auth", status: "degraded" },
+      matchedAt: "2026-03-04T15:00:00.000Z",
+      webhookPath: "/hooks/sentinel",
+      operatorGoalRuntimeContext: '{"bidCap": 50}',
+    });
+
+    expect(envelope.operatorGoal).toBe("Follow the bidding policy from runtime context");
+    expect(envelope.operatorGoalRuntimeContext).toBe('{"bidCap": 50}');
+  });
+
   it("bounds oversized payload bodies", () => {
     const envelope = createCallbackEnvelope({
       watcher: baseWatcher as any,

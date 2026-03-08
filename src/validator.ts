@@ -97,6 +97,7 @@ function createWatcherSchema(maxOperatorGoalChars: number) {
           operatorGoal: Type.Optional(
             Type.String({ minLength: 1, maxLength: maxOperatorGoalChars }),
           ),
+          operatorGoalFile: Type.Optional(Type.String({ minLength: 1, pattern: "^(/|~)" })),
         },
         { additionalProperties: false },
       ),

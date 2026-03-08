@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import os from "node:os";
 import { evaluateConditions, hashPayload } from "./evaluator.js";
 import { assertHostAllowed, assertWatcherLimits } from "./limits.js";
 import { defaultStatePath, loadState, saveState } from "./stateStore.js";
@@ -10,6 +12,7 @@ import { sseStrategy } from "./strategies/sse.js";
 import { websocketStrategy } from "./strategies/websocket.js";
 import { evmCallStrategy } from "./strategies/evmCall.js";
 import {
+  DEFAULT_OPERATOR_GOAL_MAX_CHARS,
   DEFAULT_SENTINEL_WEBHOOK_PATH,
   DeliveryTarget,
   GatewayWebhookDispatcher,
@@ -21,6 +24,38 @@ import {
 
 export const RESET_BACKOFF_AFTER_MS = 60_000;
 const MAX_DEBUG_NOTIFICATION_CHARS = 7000;
+
+function resolveFilePath(filePath: string): string {
+  if (filePath.startsWith("~/")) {
+    return `${os.homedir()}${filePath.slice(1)}`;
+  }
+  return filePath;
+}
+
+async function readOperatorGoalFile(
+  filePath: string,
+  maxChars: number,
+  logger?: WatcherLogger,
+): Promise<string | undefined> {
+  try {
+    const resolved = resolveFilePath(filePath);
+    const content = await readFile(resolved, "utf8");
+    const trimmed = content.trim();
+    if (trimmed.length === 0) return undefined;
+    if (trimmed.length > maxChars) {
+      logger?.warn?.(
+        `[openclaw-sentinel] operatorGoalFile content truncated from ${trimmed.length} to ${maxChars} chars: ${filePath}`,
+      );
+      return trimmed.slice(0, maxChars);
+    }
+    return trimmed;
+  } catch (err) {
+    logger?.warn?.(
+      `[openclaw-sentinel] Failed to read operatorGoalFile "${filePath}": ${String((err as Error)?.message ?? err)}`,
+    );
+    return undefined;
+  }
+}
 
 function trimForChat(text: string): string {
   if (text.length <= MAX_DEBUG_NOTIFICATION_CHARS) return text;
@@ -277,12 +312,22 @@ export class WatcherManager {
             timestamp: matchedAt,
           });
           const webhookPath = watcher.fire.webhookPath ?? DEFAULT_SENTINEL_WEBHOOK_PATH;
+          let operatorGoalRuntimeContext: string | undefined;
+          if (watcher.fire.operatorGoalFile) {
+            const maxChars = this.config.maxOperatorGoalChars ?? DEFAULT_OPERATOR_GOAL_MAX_CHARS;
+            operatorGoalRuntimeContext = await readOperatorGoalFile(
+              watcher.fire.operatorGoalFile,
+              maxChars,
+              this.logger,
+            );
+          }
           const body = createCallbackEnvelope({
             watcher,
             payload,
             payloadBody,
             matchedAt,
             webhookPath,
+            operatorGoalRuntimeContext,
           });
           let dispatchSucceeded = false;
           try {

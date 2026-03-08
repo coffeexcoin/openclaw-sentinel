@@ -170,6 +170,9 @@ function buildCallbackPrompt(envelope: SentinelCallbackEnvelope): string {
     watcher: envelope.watcher,
     trigger: envelope.trigger,
     ...(envelope.operatorGoal ? { operatorGoal: envelope.operatorGoal } : {}),
+    ...(envelope.operatorGoalRuntimeContext
+      ? { operatorGoalRuntimeContext: envelope.operatorGoalRuntimeContext }
+      : {}),
     context: envelope.context,
     payload: clipPayloadForPrompt(envelope.payload),
     deliveryTargets: envelope.deliveryTargets,
@@ -180,7 +183,7 @@ function buildCallbackPrompt(envelope: SentinelCallbackEnvelope): string {
     "SENTINEL_TRIGGER: A sentinel watcher callback has fired. Analyze the callback and take appropriate action.",
     "",
     "Instructions:",
-    "- Review the watcher intent, event payload, and operator goal (if present).",
+    "- Review the watcher intent, event payload, and operator goal (if present). If operatorGoalRuntimeContext is present, it contains current policy/config values loaded at fire time — use these instead of any stale values.",
     "- Use sentinel_act to execute remediation actions when the situation calls for it.",
     '- Use sentinel_act with action "notify" to send the result to delivery targets. This is the only way your response reaches the user.',
     "- Use sentinel_escalate if the situation requires user attention or is beyond your ability to resolve.",

@@ -104,8 +104,10 @@ export function createCallbackEnvelope(args: {
   payloadBody: Record<string, unknown>;
   matchedAt: string;
   webhookPath: string;
+  operatorGoalRuntimeContext?: string;
 }): SentinelCallbackEnvelope {
-  const { watcher, payload, payloadBody, matchedAt, webhookPath } = args;
+  const { watcher, payload, payloadBody, matchedAt, webhookPath, operatorGoalRuntimeContext } =
+    args;
   const context = {
     watcher,
     event: { name: watcher.fire.eventName },
@@ -152,6 +154,7 @@ export function createCallbackEnvelope(args: {
       ...(deadline ? { deadline } : {}),
     },
     ...(watcher.fire.operatorGoal ? { operatorGoal: watcher.fire.operatorGoal } : {}),
+    ...(operatorGoalRuntimeContext ? { operatorGoalRuntimeContext } : {}),
     ...(watcher.fire.sessionGroup ? { hookSessionGroup: watcher.fire.sessionGroup } : {}),
     ...(deliveryContext ? { deliveryContext } : {}),
     context: renderedContext ?? summarizePayload(payload),

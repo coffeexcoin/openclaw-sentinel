@@ -129,6 +129,67 @@ describe("validator", () => {
     ).toThrow(/operatorGoal/i);
   });
 
+  describe("operatorGoalFile", () => {
+    it("accepts valid absolute path", () => {
+      const watcher = validateWatcherDefinition({
+        ...base,
+        fire: {
+          ...base.fire,
+          operatorGoalFile: "/home/user/.openclaw/policies/bidding.json",
+        },
+      });
+      expect(watcher.fire.operatorGoalFile).toBe("/home/user/.openclaw/policies/bidding.json");
+    });
+
+    it("accepts tilde-prefixed path", () => {
+      const watcher = validateWatcherDefinition({
+        ...base,
+        fire: {
+          ...base.fire,
+          operatorGoalFile: "~/.openclaw/policies/bidding.json",
+        },
+      });
+      expect(watcher.fire.operatorGoalFile).toBe("~/.openclaw/policies/bidding.json");
+    });
+
+    it("rejects relative paths", () => {
+      expect(() =>
+        validateWatcherDefinition({
+          ...base,
+          fire: {
+            ...base.fire,
+            operatorGoalFile: "policies/bidding.json",
+          },
+        }),
+      ).toThrow(/Invalid watcher definition/);
+    });
+
+    it("rejects empty string", () => {
+      expect(() =>
+        validateWatcherDefinition({
+          ...base,
+          fire: {
+            ...base.fire,
+            operatorGoalFile: "",
+          },
+        }),
+      ).toThrow(/Invalid watcher definition/);
+    });
+
+    it("works alongside operatorGoal", () => {
+      const watcher = validateWatcherDefinition({
+        ...base,
+        fire: {
+          ...base.fire,
+          operatorGoal: "Follow the bidding policy from the referenced file",
+          operatorGoalFile: "~/.openclaw/policies/bidding.json",
+        },
+      });
+      expect(watcher.fire.operatorGoal).toContain("bidding policy");
+      expect(watcher.fire.operatorGoalFile).toBe("~/.openclaw/policies/bidding.json");
+    });
+  });
+
   it("rejects watcher ids with invalid characters", () => {
     expect(() => validateWatcherDefinition({ ...base, id: "../../etc/passwd" })).toThrow(
       /Invalid watcher definition/,
