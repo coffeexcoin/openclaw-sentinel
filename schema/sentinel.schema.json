@@ -97,6 +97,12 @@
           "minLength": 1,
           "maxLength": 20000,
           "description": "Watcher callback success criteria text. Runtime default limit is 12000 chars unless maxOperatorGoalChars override is set."
+        },
+        "operatorGoalFile": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(/|~)",
+          "description": "Absolute path to a policy/config file read fresh each time the watcher fires. Contents are injected as operatorGoalRuntimeContext in the callback envelope, ensuring callbacks always use current policy values."
         }
       }
     },

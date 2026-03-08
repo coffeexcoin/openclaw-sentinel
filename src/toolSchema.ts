@@ -91,6 +91,13 @@ const FireConfigSchema = Type.Object({
         "What success looks like for this watcher's callbacks (default runtime limit 12000 chars; configurable up to 20000)",
     }),
   ),
+  operatorGoalFile: Type.Optional(
+    Type.String({
+      minLength: 1,
+      description:
+        "Absolute path to a policy/config file read fresh each time the watcher fires. Contents are injected as runtime context alongside operatorGoal, ensuring callbacks always use current policy values.",
+    }),
+  ),
 });
 
 const RetryPolicySchema = Type.Object({

@@ -151,6 +151,65 @@ Create a watcher via `sentinel_control`:
 - You can tune the limit with plugin config `maxOperatorGoalChars` (hard capped at `20000`).
 - Existing watchers under the old 500-char limit need no migration changes.
 
+### `fire.operatorGoalFile` — runtime policy/config references
+
+When policy values (bid caps, thresholds, tier lists, etc.) change frequently, hardcoding them into `operatorGoal` means watchers act on stale values until manually recreated.
+
+`operatorGoalFile` solves this by pointing to a local file that Sentinel reads **fresh each time the watcher fires**. The file contents are injected into the callback envelope as `operatorGoalRuntimeContext`, ensuring the callback agent always uses current policy values.
+
+**Example:** Separate static instructions from dynamic policy:
+
+```json
+{
+  "action": "create",
+  "watcher": {
+    "id": "assembly-autobid",
+    "skillId": "skills.defi",
+    "enabled": true,
+    "strategy": "evm-call",
+    "endpoint": "https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY",
+    "intervalMs": 15000,
+    "match": "all",
+    "conditions": [{ "path": "resultNamed.settled", "op": "eq", "value": false }],
+    "fire": {
+      "webhookPath": "/hooks/sentinel",
+      "eventName": "auction_active",
+      "operatorGoal": "Evaluate the auction state and place a bid if appropriate. Follow the bidding policy from operatorGoalRuntimeContext for current caps and increment tiers.",
+      "operatorGoalFile": "~/.openclaw/policies/bidding-policy.json",
+      "payloadTemplate": {
+        "event": "${event.name}",
+        "highestBid": "${payload.resultNamed.highestBid}",
+        "ts": "${timestamp}"
+      }
+    },
+    "retry": { "maxRetries": 5, "baseMs": 500, "maxMs": 15000 },
+    "evmCall": {
+      "to": "0x1234567890abcdef1234567890abcdef12345678",
+      "signature": "function auction() view returns (uint256 highestBid, bool settled)"
+    }
+  }
+}
+```
+
+The policy file (`~/.openclaw/policies/bidding-policy.json`):
+
+```json
+{
+  "maxBidUsd": 50,
+  "incrementTiers": [1, 5, 10],
+  "cooldownSeconds": 30
+}
+```
+
+When the policy changes (e.g., raising `maxBidUsd` to `75`), just update the file — no watcher recreation needed.
+
+**Behavior notes:**
+
+- Path must be absolute (`/...`) or tilde-prefixed (`~/...`).
+- If the file cannot be read (missing, permissions), the dispatch proceeds without `operatorGoalRuntimeContext` and a warning is logged.
+- File content is truncated to `maxOperatorGoalChars` (default `12000`).
+- `operatorGoalFile` complements `operatorGoal` — use `operatorGoal` for static instructions and `operatorGoalFile` for dynamic policy values.
+
 ---
 
 ## 3) Delivery targets (default + override)

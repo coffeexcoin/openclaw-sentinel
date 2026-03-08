@@ -55,6 +55,7 @@ export interface FireConfig {
   notificationPayloadMode?: NotificationPayloadModeOverride;
   sessionGroup?: string;
   operatorGoal?: string;
+  operatorGoalFile?: string;
 }
 
 export interface SentinelCallbackEnvelope {
@@ -81,6 +82,7 @@ export interface SentinelCallbackEnvelope {
     deadline?: string;
   };
   operatorGoal?: string;
+  operatorGoalRuntimeContext?: string;
   hookSessionGroup?: string;
   deliveryContext?: {
     sessionKey?: string;
