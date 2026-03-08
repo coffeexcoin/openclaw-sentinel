@@ -410,6 +410,7 @@ The strategy decodes the `eth_call` response and delivers a structured payload:
 ```json
 {
   "result": ["1234567890123456789"],
+  "resultNamed": {},
   "raw": "0x000000000000000000000000000000000000000000000000112210f47de98115",
   "blockTag": "latest",
   "to": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
@@ -417,10 +418,20 @@ The strategy decodes the `eth_call` response and delivers a structured payload:
 }
 ```
 
+For signatures with named outputs (for example: `function auction() view returns (uint256 highestBid, bool settled)`), `resultNamed` includes direct field mapping:
+
+```json
+{
+  "result": ["100", true],
+  "resultNamed": { "highestBid": "100", "settled": true }
+}
+```
+
 - `result` is always an array. Single return values are wrapped; multiple return values are decoded in order.
+- `resultNamed` maps named ABI outputs to decoded values for stable condition paths.
 - BigInt values (uint256, int256, etc.) are converted to strings to preserve precision and JSON safety.
 - Tuple/struct return values are decoded as objects with named keys.
-- Conditions target decoded values via `result.0`, `result.1`, etc.
+- Condition `path` values use dot-path notation (not JSONPath), e.g. `status`, `result.0`, `resultNamed.highestBid`.
 - `blockTag` defaults to `"latest"` but can be overridden (e.g., `"0x1234"` for a specific block).
 
 ### `evmCall` config
