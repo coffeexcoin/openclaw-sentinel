@@ -8,6 +8,24 @@ describe("evaluator security/changed", () => {
     expect(evaluateCondition(cond, { phase: "turn" }, { phase: "turn" })).toBe(false);
   });
 
+  it("supports dot-path changed checks for nested fields", () => {
+    const cond = { path: "resultNamed.highestBid", op: "changed" as const };
+    expect(
+      evaluateCondition(
+        cond,
+        { resultNamed: { highestBid: "101" } },
+        { resultNamed: { highestBid: "100" } },
+      ),
+    ).toBe(true);
+    expect(
+      evaluateCondition(
+        cond,
+        { resultNamed: { highestBid: "101" } },
+        { resultNamed: { highestBid: "101" } },
+      ),
+    ).toBe(false);
+  });
+
   it("rejects unsafe regex patterns", () => {
     const cond = { path: "x", op: "matches" as const, value: "(a|aa)+" };
     expect(() => evaluateCondition(cond, { x: "aaaaa" }, {})).toThrow();

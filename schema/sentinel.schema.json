@@ -51,7 +51,11 @@
       "additionalProperties": false,
       "required": ["path", "op"],
       "properties": {
-        "path": { "type": "string", "minLength": 1 },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Dot path to evaluate against the response payload (for example: status, result.0, resultNamed.highestBid)"
+        },
         "op": { "$ref": "#/$defs/operator" },
         "value": {}
       }
