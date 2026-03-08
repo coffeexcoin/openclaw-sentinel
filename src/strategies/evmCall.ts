@@ -19,6 +19,21 @@ function normalizeBigInts(value: unknown): unknown {
   return value;
 }
 
+function buildNamedResult(
+  outputs: AbiFunction.AbiFunction["outputs"] | undefined,
+  normalizedResult: unknown[],
+): Record<string, unknown> {
+  const named: Record<string, unknown> = {};
+  if (!outputs?.length) return named;
+
+  outputs.forEach((output, index) => {
+    if (!output.name) return;
+    named[output.name] = normalizedResult[index];
+  });
+
+  return named;
+}
+
 export const evmCallStrategy: StrategyHandler = async (watcher, onPayload, onError) => {
   const evmCall = watcher.evmCall;
   if (!evmCall) {
@@ -105,12 +120,14 @@ export const evmCallStrategy: StrategyHandler = async (watcher, onPayload, onErr
       }
 
       const decoded = AbiFunction.decodeResult(abiFunction, raw as `0x${string}`);
-      const normalized = Array.isArray(decoded)
+      const normalizedResult = Array.isArray(decoded)
         ? (normalizeBigInts(decoded) as unknown[])
         : [normalizeBigInts(decoded)];
+      const resultNamed = buildNamedResult(abiFunction.outputs, normalizedResult);
 
       await onPayload({
-        result: normalized,
+        result: normalizedResult,
+        resultNamed,
         raw,
         blockTag,
         to: evmCall.to,

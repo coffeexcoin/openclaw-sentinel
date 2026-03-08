@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { evaluateCondition } from "../src/evaluator.js";
 import { evmCallStrategy } from "../src/strategies/evmCall.js";
 import { WatcherDefinition } from "../src/types.js";
 
@@ -65,6 +66,7 @@ describe("evmCallStrategy", () => {
 
     const payload = onPayload.mock.calls[0][0];
     expect(payload.result).toEqual(["1234567890"]);
+    expect(payload.resultNamed).toEqual({});
     expect(payload.raw).toBe(balanceHex);
     expect(payload.blockTag).toBe("latest");
     expect(payload.to).toBe("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
@@ -173,6 +175,82 @@ describe("evmCallStrategy", () => {
     expect(payload.result[0]).toBe("42"); // BigInt → string
     expect(payload.result[1].token).toBe("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     expect(payload.result[1].amount).toBe("1000"); // nested BigInt → string
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it("adds resultNamed for named ABI outputs while preserving legacy result/raw fields", async () => {
+    const watcher: WatcherDefinition = {
+      ...baseWatcher,
+      intervalMs: 999999,
+      evmCall: {
+        to: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+        signature: "function auction() view returns (uint256 highestBid, bool settled)",
+        args: [],
+      },
+    };
+
+    const hex =
+      "0x" +
+      "0000000000000000000000000000000000000000000000000000000000000064" +
+      "0000000000000000000000000000000000000000000000000000000000000001";
+
+    globalThis.fetch = vi.fn().mockResolvedValueOnce(mockFetchResponse(hex)) as any;
+
+    const onPayload = vi.fn();
+    const stop = await evmCallStrategy(watcher, onPayload, vi.fn());
+
+    await vi.waitFor(() => expect(onPayload).toHaveBeenCalledTimes(1));
+    await stop();
+
+    const payload = onPayload.mock.calls[0][0];
+    expect(payload.result).toEqual(["100", true]);
+    expect(payload.resultNamed).toEqual({ highestBid: "100", settled: true });
+    expect(payload.raw).toBe(hex);
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it("supports changed conditions on resultNamed fields when values change", async () => {
+    const watcher: WatcherDefinition = {
+      ...baseWatcher,
+      intervalMs: 999999,
+      evmCall: {
+        to: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+        signature: "function auction() view returns (uint256 highestBid, bool settled)",
+        args: [],
+      },
+    };
+
+    const firstHex =
+      "0x" +
+      "0000000000000000000000000000000000000000000000000000000000000064" +
+      "0000000000000000000000000000000000000000000000000000000000000001";
+    const secondHex =
+      "0x" +
+      "000000000000000000000000000000000000000000000000000000000000006e" +
+      "0000000000000000000000000000000000000000000000000000000000000001";
+
+    globalThis.fetch = vi.fn().mockResolvedValueOnce(mockFetchResponse(firstHex)) as any;
+    const onPayloadA = vi.fn();
+    const stopA = await evmCallStrategy(watcher, onPayloadA, vi.fn());
+    await vi.waitFor(() => expect(onPayloadA).toHaveBeenCalledTimes(1));
+    await stopA();
+    const payloadA = onPayloadA.mock.calls[0][0];
+
+    globalThis.fetch = vi.fn().mockResolvedValueOnce(mockFetchResponse(secondHex)) as any;
+    const onPayloadB = vi.fn();
+    const stopB = await evmCallStrategy(watcher, onPayloadB, vi.fn());
+    await vi.waitFor(() => expect(onPayloadB).toHaveBeenCalledTimes(1));
+    await stopB();
+    const payloadB = onPayloadB.mock.calls[0][0];
+
+    expect(
+      evaluateCondition({ path: "resultNamed.highestBid", op: "changed" }, payloadB, payloadA),
+    ).toBe(true);
+    expect(
+      evaluateCondition({ path: "resultNamed.settled", op: "changed" }, payloadB, payloadA),
+    ).toBe(false);
 
     globalThis.fetch = originalFetch;
   });

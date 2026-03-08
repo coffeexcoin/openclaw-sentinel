@@ -6,7 +6,10 @@ const TemplateValueRefSchema = Type.Ref(TemplateValueSchema);
 const WATCHER_ID_PATTERN = "^[A-Za-z0-9_-]{1,128}$";
 
 const ConditionSchema = Type.Object({
-  path: Type.String({ description: "JSONPath expression to evaluate against the response" }),
+  path: Type.String({
+    description:
+      "Dot path to evaluate against the response payload (for example: status, result.0, resultNamed.highestBid)",
+  }),
   op: Type.Union(
     [
       Type.Literal("eq"),
